@@ -942,7 +942,7 @@ describe("RecordingPreparation", () => {
         blockingIssues={[]}
         camera={DEFAULT_SETTINGS.camera}
         cameraDeviceName={null}
-        hasCamera={false}
+        hasCamera
         hasMicrophone={false}
         microphoneDeviceName={null}
         microphoneEnabled={false}
@@ -960,6 +960,13 @@ describe("RecordingPreparation", () => {
     );
 
     expect(screen.getByRole("button", { name: "正在开始录制" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "更换设备" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "返回编辑" })).toBeDisabled();
+    expect(screen.getByLabelText("镜像摄像头")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "圆角摄像头" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "重置摄像头位置" }),
+    ).toBeDisabled();
   });
 
   it("offers camera mirror, shape, and reset controls before recording", () => {

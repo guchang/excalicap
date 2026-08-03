@@ -97,7 +97,11 @@ export function RecordingPreparation(props: RecordingPreparationProps) {
           </div>
         </dl>
         <div className="preparation-device-actions">
-          <button onClick={props.onChangeDevices} type="button">
+          <button
+            disabled={props.starting}
+            onClick={props.onChangeDevices}
+            type="button"
+          >
             更换设备
           </button>
         </div>
@@ -108,7 +112,7 @@ export function RecordingPreparation(props: RecordingPreparationProps) {
               <input
                 aria-label="镜像摄像头"
                 checked={props.camera.mirrored}
-                disabled={!props.hasCamera}
+                disabled={props.starting || !props.hasCamera}
                 onChange={(event) =>
                   props.onCameraChange({
                     ...props.camera,
@@ -121,7 +125,7 @@ export function RecordingPreparation(props: RecordingPreparationProps) {
             </label>
             <button
               aria-pressed={props.camera.shape === "circle"}
-              disabled={!props.hasCamera}
+              disabled={props.starting || !props.hasCamera}
               onClick={() =>
                 props.onCameraChange({ ...props.camera, shape: "circle" })
               }
@@ -132,7 +136,7 @@ export function RecordingPreparation(props: RecordingPreparationProps) {
             <button
               aria-label="圆角摄像头"
               aria-pressed={props.camera.shape === "rounded"}
-              disabled={!props.hasCamera}
+              disabled={props.starting || !props.hasCamera}
               onClick={() =>
                 props.onCameraChange({ ...props.camera, shape: "rounded" })
               }
@@ -142,7 +146,7 @@ export function RecordingPreparation(props: RecordingPreparationProps) {
             </button>
             <button
               aria-label="重置摄像头位置"
-              disabled={!props.hasCamera}
+              disabled={props.starting || !props.hasCamera}
               onClick={props.onCameraReset}
               type="button"
             >
@@ -166,7 +170,12 @@ export function RecordingPreparation(props: RecordingPreparationProps) {
           </ul>
         )}
         <footer>
-          <button className="secondary-action" onClick={props.onCancel} type="button">
+          <button
+            className="secondary-action"
+            disabled={props.starting}
+            onClick={props.onCancel}
+            type="button"
+          >
             返回编辑
           </button>
           <button

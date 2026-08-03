@@ -1145,6 +1145,9 @@ export default function App({
   ]);
 
   const cancelRecordingPreparation = useCallback(() => {
+    if (startingRef.current) {
+      return;
+    }
     setPreparation(null);
     setRecordingState("idle");
     stopDevices();
@@ -1702,6 +1705,9 @@ export default function App({
   }, []);
 
   const changePreparationDevices = useCallback(() => {
+    if (startingRef.current) {
+      return;
+    }
     cancelRecordingPreparation();
     openSettings();
   }, [cancelRecordingPreparation, openSettings]);
@@ -1740,6 +1746,9 @@ export default function App({
 
   const updateCameraSettings = useCallback(
     (camera: CameraSettings) => {
+      if (startingRef.current) {
+        return;
+      }
       setSettings((current) => {
         const nextSettings = { ...current, camera };
         saveProductSettings(localStorage, nextSettings);
@@ -1974,6 +1983,7 @@ export default function App({
       focusRect &&
       acquiredMediaRef.current?.cameraStream,
   );
+  const cameraAdjustable = cameraVisible && recordingState === "preparing";
 
   return (
     <main
@@ -2144,7 +2154,7 @@ export default function App({
         data-shape={settings.camera.shape}
         data-visible={cameraVisible}
         onPointerDown={(event) => {
-          if (!cameraVisible) {
+          if (!cameraAdjustable) {
             return;
           }
           event.preventDefault();
@@ -2171,6 +2181,7 @@ export default function App({
         <button
           aria-label="调整摄像头大小"
           className="camera-resize-handle"
+          disabled={!cameraAdjustable}
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
