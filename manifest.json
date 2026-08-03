@@ -1,0 +1,9 @@
+{
+  "id": "excalicap",
+  "name": "Excalicap",
+  "version": "0.1.0",
+  "minAppVersion": "1.7.2",
+  "description": "在 Obsidian 中创作并录制 Excalidraw 白板视频。",
+  "author": "Page",
+  "isDesktopOnly": true
+}
