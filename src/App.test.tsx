@@ -8,6 +8,7 @@ import {
 import { beforeEach, vi } from "vitest";
 import App from "./App";
 import { DEFAULT_SETTINGS } from "./product/output-presets";
+import { MediaRecorderEngine } from "./recording/media-recorder-engine";
 
 const projectStorageHarness = vi.hoisted(() => ({
   snapshot: null as null | Record<string, unknown>,
@@ -1209,6 +1210,23 @@ describe("Excalicap product", () => {
     );
   });
 
+  it("creates only one recording session when start is clicked repeatedly", async () => {
+    render(<App />);
+    await screen.findByTestId("excalidraw-editor");
+    fireEvent.click(screen.getByRole("button", { name: "录制" }));
+    const start = await screen.findByRole("button", { name: "开始录制" });
+
+    fireEvent.click(start);
+    fireEvent.click(start);
+
+    await waitFor(() => expect(recorderStreams).toHaveLength(1));
+    expect(
+      screen.getByRole("button", { name: "设置" }),
+    ).toBeDisabled();
+    fireEvent.click(await screen.findByRole("button", { name: "停止" }));
+    expect(await screen.findByText("录制完成")).toBeInTheDocument();
+  });
+
   it("records separate composite and raw camera videos with the same microphone", async () => {
     const cameraTrack = new BrowserTrack("video", "USB Camera");
     const microphoneTrack = new BrowserTrack("audio", "USB Microphone");
@@ -1401,7 +1419,8 @@ describe("Excalicap product", () => {
     ).toHaveAttribute("href", "blob:recording-1");
   });
 
-  it("revokes every retained result URL when the app unmounts", async () => {
+  it("releases every retained recording when the app unmounts", async () => {
+    const cleanup = vi.spyOn(MediaRecorderEngine.prototype, "cleanup");
     const { unmount } = render(<App />);
     await screen.findByTestId("excalidraw-editor");
     fireEvent.click(screen.getByRole("button", { name: "录制" }));
@@ -1414,6 +1433,8 @@ describe("Excalicap product", () => {
     unmount();
 
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:recording-1");
+    await waitFor(() => expect(cleanup).toHaveBeenCalledOnce());
+    cleanup.mockRestore();
   });
 
   it("queues product changes for automatic local saving", async () => {

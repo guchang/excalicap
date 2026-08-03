@@ -440,8 +440,13 @@ export default function App({
     slides[0]?.id ?? null,
   );
   const [saveStatus, setSaveStatus] = useState<AutosaveStatus>("saved");
-  const [recordingState, setRecordingState] =
+  const [recordingState, setRecordingStateValue] =
     useState<ProductRecordingState>("idle");
+  const recordingStateRef = useRef<ProductRecordingState>("idle");
+  const setRecordingState = useCallback((next: ProductRecordingState) => {
+    recordingStateRef.current = next;
+    setRecordingStateValue(next);
+  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [teleprompterOpen, setTeleprompterOpen] = useState(false);
   const [devices, setDevices] = useState<DeviceCatalog>({
@@ -477,7 +482,9 @@ export default function App({
   const compositorRef = useRef<Compositor | null>(null);
   const currentFrameRef = useRef<ActiveFrameBounds | null>(null);
   const recordingSessionRef = useRef<DualRecordingSession | null>(null);
+  const retainedRecordingSessionRef = useRef<DualRecordingSession | null>(null);
   const preparingRef = useRef(false);
+  const startingRef = useRef(false);
   const stoppingRef = useRef(false);
   const captureStreamRef = useRef<MediaStreamLike | null>(null);
   const acquiredMediaRef = useRef<AcquiredMedia | null>(null);
@@ -499,6 +506,7 @@ export default function App({
   const profile = useMemo(() => resolveOutputProfile(settings), [settings]);
   const focusActive =
     recordingState === "preparing" ||
+    recordingState === "starting" ||
     recordingState === "recording" ||
     recordingState === "paused" ||
     recordingState === "stopping";
@@ -1155,11 +1163,16 @@ export default function App({
   }, [stopDevices]);
 
   const startRecording = useCallback(async () => {
+    if (startingRef.current || recordingSessionRef.current) {
+      return;
+    }
     const canvas = recordingCanvasRef.current;
     const capability = preparation?.capability;
     if (!canvas || !capability?.supported || !capability.mimeType) {
       return;
     }
+    startingRef.current = true;
+    setRecordingState("starting");
     try {
       setRecordingError(null);
       setRecordingResultOpen(false);
@@ -1230,6 +1243,8 @@ export default function App({
       setRecordingError(
         error instanceof Error ? error.message : "无法开始录制",
       );
+    } finally {
+      startingRef.current = false;
     }
   }, [
     preparation,
@@ -1279,7 +1294,6 @@ export default function App({
       stopCompositionLoop();
       stopCaptureStream();
       stopDevices();
-      recordingSessionRef.current = null;
       const names = recordingFileNames(result.composite.type);
       const composite = createRecordingAsset(
         result.composite,
@@ -1294,6 +1308,17 @@ export default function App({
         URL.revokeObjectURL(composite.url);
         throw error;
       }
+      try {
+        await retainedRecordingSessionRef.current?.cleanup();
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? `上次录制临时文件清理失败：${error.message}`
+            : "上次录制临时文件清理失败",
+        );
+      }
+      retainedRecordingSessionRef.current = session;
+      recordingSessionRef.current = null;
       setRecordingResult({
         composite,
         camera,
@@ -1659,6 +1684,13 @@ export default function App({
   );
 
   const openSettings = useCallback(() => {
+    if (
+      recordingStateRef.current !== "idle" &&
+      recordingStateRef.current !== "completed" &&
+      recordingStateRef.current !== "failed"
+    ) {
+      return;
+    }
     setSettingsOpen(true);
     if (navigator.mediaDevices) {
       void enumerateMediaDevices(
@@ -1676,6 +1708,14 @@ export default function App({
 
   const applySettings = useCallback(
     (nextSettings: ProductSettings) => {
+      if (
+        recordingStateRef.current !== "idle" &&
+        recordingStateRef.current !== "completed" &&
+        recordingStateRef.current !== "failed"
+      ) {
+        setNotice("录制期间不能修改画幅和录制设置");
+        return;
+      }
       const nextProfile = resolveOutputProfile(nextSettings);
       const api = apiRef.current;
       if (api) {
@@ -1844,6 +1884,9 @@ export default function App({
         mountedRef.current = false;
         autosaveRef.current?.dispose();
         void recordingSessionRef.current?.abort();
+        void retainedRecordingSessionRef.current
+          ?.cleanup()
+          .catch(() => undefined);
         stopCaptureStream();
         stopCompositionLoop();
         stopDevices();
@@ -2051,6 +2094,7 @@ export default function App({
         microphoneEnabled={settings.microphone.enabled}
         open={Boolean(preparation)}
         profile={profile}
+        starting={recordingState === "starting"}
         warnings={preparation?.warnings ?? []}
         onCameraChange={updateCameraSettings}
         onCameraReset={() =>

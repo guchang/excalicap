@@ -13,6 +13,7 @@ function createTask(
   resume: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
   abort: ReturnType<typeof vi.fn>;
+  cleanup: ReturnType<typeof vi.fn>;
 } {
   return {
     start: vi.fn(async () => undefined),
@@ -25,6 +26,7 @@ function createTask(
       return stopResult;
     }),
     abort: vi.fn(async () => undefined),
+    cleanup: vi.fn(async () => undefined),
   };
 }
 
@@ -105,5 +107,30 @@ describe("DualRecordingSession", () => {
 
     await expect(session.stop()).rejects.toThrow("合成录制失败");
     expect(camera.abort).toHaveBeenCalledOnce();
+  });
+
+  it("cleans up retained temporary data only when explicitly requested", async () => {
+    const composite = createTask(new Blob(["composite"]));
+    const camera = createTask(new Blob(["camera"]));
+    const session = new DualRecordingSession(composite, camera);
+
+    await session.start(compositeOptions, cameraOptions);
+    await session.stop();
+
+    expect(composite.cleanup).not.toHaveBeenCalled();
+    expect(camera.cleanup).not.toHaveBeenCalled();
+
+    await session.cleanup();
+    expect(composite.cleanup).toHaveBeenCalledOnce();
+    expect(camera.cleanup).toHaveBeenCalledOnce();
+  });
+
+  it("reports a retained temporary-data cleanup failure", async () => {
+    const cleanupError = new Error("无法删除临时文件");
+    const composite = createTask();
+    composite.cleanup.mockRejectedValue(cleanupError);
+    const session = new DualRecordingSession(composite, null);
+
+    await expect(session.cleanup()).rejects.toBe(cleanupError);
   });
 });

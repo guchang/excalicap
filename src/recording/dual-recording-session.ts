@@ -6,6 +6,7 @@ export interface RecordingTask {
   resume(): Promise<void>;
   stop(): Promise<Blob>;
   abort(): Promise<void>;
+  cleanup(): Promise<void>;
 }
 
 export interface DualRecordingResult {
@@ -99,6 +100,13 @@ export class DualRecordingSession {
     await Promise.allSettled([
       this.compositeTask.abort(),
       ...(this.cameraTask ? [this.cameraTask.abort()] : []),
+    ]);
+  }
+
+  public async cleanup(): Promise<void> {
+    await Promise.all([
+      this.compositeTask.cleanup(),
+      ...(this.cameraTask ? [this.cameraTask.cleanup()] : []),
     ]);
   }
 }

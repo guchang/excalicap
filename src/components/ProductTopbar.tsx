@@ -3,6 +3,7 @@ import { Icon } from "./icons";
 export type ProductRecordingState =
   | "idle"
   | "preparing"
+  | "starting"
   | "recording"
   | "paused"
   | "stopping"
@@ -54,6 +55,7 @@ export function ProductTopbar(props: ProductTopbarProps) {
     props.recordingState === "paused";
   const editingLocked =
     props.recordingState === "preparing" ||
+    props.recordingState === "starting" ||
     transportActive ||
     props.recordingState === "stopping";
   return (
@@ -109,7 +111,10 @@ export function ProductTopbar(props: ProductTopbarProps) {
           <button
             aria-label="录制"
             className="record-button"
-            disabled={props.recordingState === "preparing"}
+            disabled={
+              props.recordingState === "preparing" ||
+              props.recordingState === "starting"
+            }
             onClick={props.onRecord}
             type="button"
           >

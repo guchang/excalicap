@@ -936,6 +936,32 @@ describe("Teleprompter", () => {
 });
 
 describe("RecordingPreparation", () => {
+  it("disables repeated starts while the recording session is being created", () => {
+    render(
+      <RecordingPreparation
+        blockingIssues={[]}
+        camera={DEFAULT_SETTINGS.camera}
+        cameraDeviceName={null}
+        hasCamera={false}
+        hasMicrophone={false}
+        microphoneDeviceName={null}
+        microphoneEnabled={false}
+        mimeType="video/webm"
+        open
+        profile={{ width: 1080, height: 1440, fps: 30 }}
+        starting
+        warnings={[]}
+        onCameraChange={() => undefined}
+        onCameraReset={() => undefined}
+        onCancel={() => undefined}
+        onChangeDevices={() => undefined}
+        onStart={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "正在开始录制" })).toBeDisabled();
+  });
+
   it("offers camera mirror, shape, and reset controls before recording", () => {
     const changes: string[] = [];
     render(

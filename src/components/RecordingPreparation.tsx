@@ -12,6 +12,7 @@ export interface RecordingPreparationProps {
   readonly cameraDeviceName: string | null;
   readonly microphoneDeviceName: string | null;
   readonly microphoneEnabled: boolean;
+  readonly starting?: boolean;
   readonly camera: CameraSettings;
   readonly onCameraChange: (camera: CameraSettings) => void;
   readonly onCameraReset: () => void;
@@ -170,12 +171,13 @@ export function RecordingPreparation(props: RecordingPreparationProps) {
           </button>
           <button
             className="record-confirm-button"
-            disabled={props.blockingIssues.length > 0}
+            aria-label={props.starting ? "正在开始录制" : "开始录制"}
+            disabled={props.starting || props.blockingIssues.length > 0}
             onClick={props.onStart}
             type="button"
           >
             <i />
-            开始录制
+            {props.starting ? "正在开始…" : "开始录制"}
           </button>
         </footer>
       </section>
