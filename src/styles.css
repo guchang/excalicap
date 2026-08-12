@@ -1690,22 +1690,29 @@
   margin: 0;
   appearance: none;
   outline: none;
-  background: transparent;
+  background-color: transparent;
+  background-image: linear-gradient(
+    rgba(255, 255, 255, 0.16),
+    rgba(255, 255, 255, 0.16)
+  );
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 4px;
   cursor: pointer;
 }
 
 .teleprompter-settings-panel
   input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
+  height: 14px;
+  border-radius: 0;
+  background: transparent;
 }
 
 .teleprompter-settings-panel input[type="range"]::-webkit-slider-thumb {
   box-sizing: border-box;
   width: 14px;
   height: 14px;
-  margin-top: -5px;
+  margin-top: 0;
   appearance: none;
   border: 2px solid #25262d;
   border-radius: 50%;
@@ -1722,9 +1729,9 @@
 }
 
 .teleprompter-settings-panel input[type="range"]::-moz-range-track {
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
+  height: 14px;
+  border-radius: 0;
+  background: transparent;
 }
 
 .teleprompter-settings-panel input[type="range"]::-moz-range-thumb {
