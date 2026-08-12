@@ -172,11 +172,36 @@ export function Teleprompter(props: TeleprompterProps) {
         aria-label="拖动提词器"
         onPointerDown={(event) => beginGesture("drag", event)}
       >
-        <strong>提词器</strong>
-        <span>不会进入录制画面</span>
-        <button aria-label="关闭提词器" onClick={props.onClose} type="button">
-          <Icon name="close" />
-        </button>
+        <div className="teleprompter-title">
+          <span className="teleprompter-title-mark" />
+          <div>
+            <strong>提词器</strong>
+            <span>仅供讲述者 · 不进入成片</span>
+          </div>
+        </div>
+        <div className="teleprompter-header-actions">
+          <button
+            aria-expanded={settingsExpanded}
+            aria-label={settingsExpanded ? "收起设置" : "展开设置"}
+            className="teleprompter-settings-toggle"
+            data-active={settingsExpanded}
+            onClick={() => setSettingsExpanded((current) => !current)}
+            onPointerDown={(event) => event.stopPropagation()}
+            title={settingsExpanded ? "收起设置" : "展开设置"}
+            type="button"
+          >
+            <Icon name="settings" />
+          </button>
+          <button
+            aria-label="关闭提词器"
+            className="teleprompter-close"
+            onClick={props.onClose}
+            onPointerDown={(event) => event.stopPropagation()}
+            type="button"
+          >
+            <Icon name="close" />
+          </button>
+        </div>
       </header>
       <textarea
         aria-label="提词器文字"
@@ -189,18 +214,39 @@ export function Teleprompter(props: TeleprompterProps) {
         value={props.settings.text}
       />
       <footer data-settings-expanded={settingsExpanded}>
-        <div className="teleprompter-controls">
+        <div className="teleprompter-transport">
           <button
             aria-label={scrolling ? "停止滚动" : "开始滚动"}
+            className="teleprompter-playback-button"
+            data-scrolling={scrolling}
             onClick={() => setScrolling((current) => !current)}
             type="button"
           >
             <Icon name={scrolling ? "pause" : "play"} />
             {scrolling ? "停止滚动" : "开始滚动"}
           </button>
-          <label hidden={!settingsExpanded}>
-            速度
-            <span>{props.settings.speed} px/s</span>
+          <div className="teleprompter-transport-status">
+            <span data-scrolling={scrolling} />
+            <span>{scrolling ? "正在滚动" : "准备就绪"}</span>
+            <output>{props.settings.speed} px/s</output>
+          </div>
+          <span
+            className="teleprompter-keyboard-hint"
+            hidden={!settingsExpanded}
+          >
+            空格 播放 / ↑↓ 滚动
+          </span>
+        </div>
+        <div
+          aria-label="提词器设置"
+          className="teleprompter-settings-panel"
+          hidden={!settingsExpanded}
+        >
+          <div className="teleprompter-setting-card">
+            <span>
+              滚动速度
+              <output>{props.settings.speed} px/s</output>
+            </span>
             <input
               aria-label="滚动速度"
               max="20"
@@ -214,10 +260,12 @@ export function Teleprompter(props: TeleprompterProps) {
               type="range"
               value={props.settings.speed}
             />
-          </label>
-          <label hidden={!settingsExpanded}>
-            字体
-            <span>{props.settings.fontSize}px</span>
+          </div>
+          <div className="teleprompter-setting-card">
+            <span>
+              字号
+              <output>{props.settings.fontSize}px</output>
+            </span>
             <input
               aria-label="字体大小"
               max="40"
@@ -231,9 +279,12 @@ export function Teleprompter(props: TeleprompterProps) {
               type="range"
               value={props.settings.fontSize}
             />
-          </label>
-          <label hidden={!settingsExpanded}>
-            透明度
+          </div>
+          <div className="teleprompter-setting-card">
+            <span>
+              背景
+              <output>{Math.round(props.settings.opacity * 100)}%</output>
+            </span>
             <input
               aria-label="背景透明度"
               max="1"
@@ -248,23 +299,7 @@ export function Teleprompter(props: TeleprompterProps) {
               type="range"
               value={props.settings.opacity}
             />
-          </label>
-        </div>
-        <div className="teleprompter-footer-meta">
-          <span
-            className="teleprompter-keyboard-hint"
-            hidden={!settingsExpanded}
-          >
-            ↑↓ 手动滚动 · 空格 播放/暂停
-          </span>
-          <button
-            aria-expanded={settingsExpanded}
-            className="teleprompter-settings-toggle"
-            onClick={() => setSettingsExpanded((current) => !current)}
-            type="button"
-          >
-            {settingsExpanded ? "收起设置" : "展开设置"}
-          </button>
+          </div>
         </div>
       </footer>
       <button

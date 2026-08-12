@@ -8,7 +8,7 @@ describe("teleprompter styles", () => {
     const teleprompterRule = styles.match(/\.teleprompter\s*\{([^}]*)\}/);
 
     expect(teleprompterRule?.[1]).toContain(
-      "background: rgba(23, 25, 31, var(--teleprompter-opacity, 0.88))",
+      "background: rgba(17, 18, 22, var(--teleprompter-opacity, 0.88))",
     );
     expect(teleprompterRule?.[1]).not.toMatch(/backdrop-filter\s*:/);
   });

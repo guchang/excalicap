@@ -846,7 +846,7 @@ describe("Teleprompter", () => {
     expect(changes).toEqual([0.64]);
     expect(script.scrollTop).toBe(144);
     expect(
-      screen.getByText("↑↓ 手动滚动 · 空格 播放/暂停"),
+      screen.getByText("空格 播放 / ↑↓ 滚动"),
     ).toBeInTheDocument();
   });
 
@@ -870,7 +870,7 @@ describe("Teleprompter", () => {
 
     expect(speed).toHaveAttribute("min", "1");
     expect(speed).toHaveAttribute("max", "20");
-    expect(screen.getByText("8 px/s")).toBeInTheDocument();
+    expect(screen.getAllByText("8 px/s")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "开始滚动" }));
     act(() => vi.advanceTimersByTime(1_000));
 
