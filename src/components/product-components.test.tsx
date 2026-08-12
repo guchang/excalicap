@@ -817,6 +817,8 @@ describe("Teleprompter", () => {
     });
     expect(texts).toEqual(["新稿"]);
     expect(screen.getByRole("button", { name: "开始滚动" })).toBeEnabled();
+    expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
+    expect(screen.queryByText("正在滚动")).not.toBeInTheDocument();
     expect(screen.queryByRole("canvas")).not.toBeInTheDocument();
   });
 

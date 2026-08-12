@@ -225,9 +225,7 @@ export function Teleprompter(props: TeleprompterProps) {
             <Icon name={scrolling ? "pause" : "play"} />
             {scrolling ? "停止滚动" : "开始滚动"}
           </button>
-          <div className="teleprompter-transport-status">
-            <span data-scrolling={scrolling} />
-            <span>{scrolling ? "正在滚动" : "准备就绪"}</span>
+          <div className="teleprompter-transport-meta">
             <output>{props.settings.speed} px/s</output>
           </div>
           <span
