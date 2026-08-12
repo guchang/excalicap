@@ -8,6 +8,37 @@ afterEach(() => {
 });
 
 describe("Teleprompter", () => {
+  it("collapses settings while keeping playback controls available", () => {
+    render(
+      <Teleprompter
+        open
+        settings={DEFAULT_SETTINGS.teleprompter}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+
+    const collapse = screen.getByRole("button", { name: "收起设置" });
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(collapse);
+
+    expect(screen.getByLabelText("滚动速度")).not.toBeVisible();
+    expect(screen.getByLabelText("字体大小")).not.toBeVisible();
+    expect(screen.getByLabelText("背景透明度")).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "开始滚动" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "展开设置" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "展开设置" }));
+
+    expect(screen.getByLabelText("滚动速度")).toBeInTheDocument();
+    expect(screen.getByLabelText("字体大小")).toBeInTheDocument();
+    expect(screen.getByLabelText("背景透明度")).toBeInTheDocument();
+  });
+
   it("changes and applies the script font size", () => {
     const changes: number[] = [];
     render(

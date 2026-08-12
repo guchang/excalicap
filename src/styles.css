@@ -681,6 +681,7 @@
 .excalicap-obsidian-view .product-shell .preparation-camera-controls button,
 .excalicap-obsidian-view .product-shell .teleprompter header button,
 .excalicap-obsidian-view .product-shell .teleprompter-controls button,
+.excalicap-obsidian-view .product-shell .teleprompter-settings-toggle,
 .excalicap-obsidian-view .product-shell .product-notice,
 .slide-context-menu button,
 .slide-delete-actions button {
@@ -740,6 +741,12 @@
   border-color: transparent !important;
   background-color: #fff !important;
   color: #24262d !important;
+}
+
+.excalicap-obsidian-view .product-shell .teleprompter-settings-toggle {
+  border-color: transparent !important;
+  background-color: transparent !important;
+  color: rgba(255, 255, 255, 0.62) !important;
 }
 
 .excalicap-obsidian-view .product-shell .product-notice {
@@ -1438,6 +1445,17 @@
   border-top: 1px solid rgba(255, 255, 255, 0.09);
 }
 
+.teleprompter footer[data-settings-expanded="false"] {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: 6px;
+}
+
+.teleprompter footer[data-settings-expanded="false"] .teleprompter-controls {
+  display: block;
+}
+
 .teleprompter-controls {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1471,6 +1489,10 @@
   white-space: nowrap;
 }
 
+.teleprompter-controls label[hidden] {
+  display: none;
+}
+
 .teleprompter-controls input[type="range"] {
   flex: 1;
   width: 100%;
@@ -1478,9 +1500,35 @@
 }
 
 .teleprompter-keyboard-hint {
+  flex: 1;
   color: rgba(255, 255, 255, 0.5);
   font-size: 9px;
   text-align: right;
+}
+
+.teleprompter-footer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.teleprompter-settings-toggle {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  cursor: pointer;
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.teleprompter-settings-toggle:hover,
+.teleprompter-settings-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
 }
 
 .teleprompter-resize-handle {

@@ -17,6 +17,7 @@ export interface TeleprompterProps {
 
 export function Teleprompter(props: TeleprompterProps) {
   const [scrolling, setScrolling] = useState(false);
+  const [settingsExpanded, setSettingsExpanded] = useState(true);
   const [position, setPosition] = useState(() => ({
     left: Math.max(8, (window.innerWidth - props.settings.width) / 2),
     top: 88,
@@ -187,7 +188,7 @@ export function Teleprompter(props: TeleprompterProps) {
         style={{ fontSize: `${props.settings.fontSize}px` }}
         value={props.settings.text}
       />
-      <footer>
+      <footer data-settings-expanded={settingsExpanded}>
         <div className="teleprompter-controls">
           <button
             aria-label={scrolling ? "停止滚动" : "开始滚动"}
@@ -197,7 +198,7 @@ export function Teleprompter(props: TeleprompterProps) {
             <Icon name={scrolling ? "pause" : "play"} />
             {scrolling ? "停止滚动" : "开始滚动"}
           </button>
-          <label>
+          <label hidden={!settingsExpanded}>
             速度
             <span>{props.settings.speed} px/s</span>
             <input
@@ -214,7 +215,7 @@ export function Teleprompter(props: TeleprompterProps) {
               value={props.settings.speed}
             />
           </label>
-          <label>
+          <label hidden={!settingsExpanded}>
             字体
             <span>{props.settings.fontSize}px</span>
             <input
@@ -231,7 +232,7 @@ export function Teleprompter(props: TeleprompterProps) {
               value={props.settings.fontSize}
             />
           </label>
-          <label>
+          <label hidden={!settingsExpanded}>
             透明度
             <input
               aria-label="背景透明度"
@@ -249,9 +250,22 @@ export function Teleprompter(props: TeleprompterProps) {
             />
           </label>
         </div>
-        <span className="teleprompter-keyboard-hint">
-          ↑↓ 手动滚动 · 空格 播放/暂停
-        </span>
+        <div className="teleprompter-footer-meta">
+          <span
+            className="teleprompter-keyboard-hint"
+            hidden={!settingsExpanded}
+          >
+            ↑↓ 手动滚动 · 空格 播放/暂停
+          </span>
+          <button
+            aria-expanded={settingsExpanded}
+            className="teleprompter-settings-toggle"
+            onClick={() => setSettingsExpanded((current) => !current)}
+            type="button"
+          >
+            {settingsExpanded ? "收起设置" : "展开设置"}
+          </button>
+        </div>
       </footer>
       <button
         aria-label="调整提词器大小"
