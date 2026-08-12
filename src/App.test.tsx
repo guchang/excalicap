@@ -1219,7 +1219,7 @@ describe("Excalicap product", () => {
     fireEvent.click(start);
     fireEvent.click(start);
 
-    await waitFor(() => expect(recorderStreams).toHaveLength(1));
+    await waitFor(() => expect(recorderStreams).toHaveLength(3));
     expect(
       screen.getByRole("button", { name: "设置" }),
     ).toBeDisabled();
@@ -1227,7 +1227,7 @@ describe("Excalicap product", () => {
     expect(await screen.findByText("录制完成")).toBeInTheDocument();
   });
 
-  it("records separate composite and raw camera videos with the same microphone", async () => {
+  it("downloads separately recorded whiteboard, camera, and audio as original materials", async () => {
     const cameraTrack = new BrowserTrack("video", "USB Camera");
     const microphoneTrack = new BrowserTrack("audio", "USB Microphone");
     Object.defineProperty(navigator, "mediaDevices", {
@@ -1243,7 +1243,7 @@ describe("Excalicap product", () => {
             : new BrowserStream([microphoneTrack]),
       },
     });
-    render(<App />);
+    render(<App projectFileName="Excalicap介绍.excalicap" />);
     await screen.findByTestId("excalidraw-editor");
 
     fireEvent.click(screen.getByRole("button", { name: "录制" }));
@@ -1258,20 +1258,30 @@ describe("Excalicap product", () => {
       await screen.findByRole("link", { name: "下载合成视频" }),
     ).toHaveAttribute("href", "blob:recording-1");
     expect(
-      screen.getByRole("link", { name: "下载摄像头原片" }),
+      screen.getByRole("link", { name: "下载原始素材" }),
     ).toHaveAttribute("href", "blob:recording-2");
-    expect(recorderStreams).toHaveLength(2);
+    expect(recorderStreams).toHaveLength(4);
     expect(recorderStreams[0].getVideoTracks()[0].source).toBe("canvas");
-    expect(recorderStreams[1].getVideoTracks()[0]).toBe(cameraTrack);
+    expect(recorderStreams[1].getVideoTracks()[0].source).toBe("canvas");
+    expect(recorderStreams[2].getVideoTracks()[0]).toBe(cameraTrack);
+    expect(recorderStreams[3].getVideoTracks()).toHaveLength(0);
     expect(recorderStreams[0].getAudioTracks()[0]).toBe(microphoneTrack);
-    expect(recorderStreams[1].getAudioTracks()[0]).toBe(microphoneTrack);
+    expect(recorderStreams[1].getAudioTracks()).toHaveLength(0);
+    expect(recorderStreams[2].getAudioTracks()).toHaveLength(0);
+    expect(recorderStreams[3].getAudioTracks()[0]).toBe(microphoneTrack);
     const compositeName = screen
       .getByRole("link", { name: "下载合成视频" })
       .getAttribute("download");
-    const cameraName = screen
-      .getByRole("link", { name: "下载摄像头原片" })
+    const materialsName = screen
+      .getByRole("link", { name: "下载原始素材" })
       .getAttribute("download");
-    expect(cameraName).toBe(compositeName?.replace("Excalicap-", "Excalicap-camera-"));
+    expect(compositeName).toMatch(
+      /^Excalicap介绍-合成成片-\d{8}-\d{6}\.mp4$/,
+    );
+    expect(materialsName).toMatch(
+      /^Excalicap介绍-原始素材-\d{8}-\d{6}\.zip$/,
+    );
+    expect(screen.getByText("白板 + 激光笔、摄像头、声音")).toBeInTheDocument();
   });
 
   it("stops prepared devices and opens settings when changing devices", async () => {
@@ -1306,7 +1316,7 @@ describe("Excalicap product", () => {
     expect(screen.getByRole("dialog", { name: "录制设置" })).toBeInTheDocument();
   });
 
-  it("keeps the composite download when the raw camera recording fails", async () => {
+  it("does not present an incomplete ZIP as successful when camera recording fails", async () => {
     const cameraTrack = new BrowserTrack("video", "camera");
     const microphoneTrack = new BrowserTrack("audio", "microphone");
     Object.defineProperty(navigator, "mediaDevices", {
@@ -1319,7 +1329,7 @@ describe("Excalicap product", () => {
             : new BrowserStream([microphoneTrack]),
       },
     });
-    recorderStopErrors.push(null, new Error("摄像头编码失败"));
+    recorderStopErrors.push(null, null, new Error("摄像头编码失败"), null);
     render(<App />);
     await screen.findByTestId("excalidraw-editor");
 
@@ -1333,13 +1343,13 @@ describe("Excalicap product", () => {
       await screen.findByRole("link", { name: "下载合成视频" }),
     ).toHaveAttribute("href", "blob:recording-1");
     expect(
+      screen.queryByRole("link", { name: "下载原始素材" }),
+    ).not.toBeInTheDocument();
+    expect(
       screen.getByText(
-        "摄像头原片生成失败：摄像头编码失败。合成成片仍可下载。",
+        "原始素材生成失败：摄像头编码失败。合成成片仍可下载。",
       ),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: "下载摄像头原片" }),
-    ).not.toBeInTheDocument();
   });
 
   it("retains and reopens the last result after closing the result panel", async () => {
@@ -1386,9 +1396,10 @@ describe("Excalicap product", () => {
 
     expect(
       await screen.findByRole("link", { name: "下载合成视频" }),
-    ).toHaveAttribute("href", "blob:recording-2");
+    ).toHaveAttribute("href", "blob:recording-3");
     await waitFor(() => {
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:recording-1");
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:recording-2");
     });
   });
 
@@ -1433,7 +1444,8 @@ describe("Excalicap product", () => {
     unmount();
 
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:recording-1");
-    await waitFor(() => expect(cleanup).toHaveBeenCalledOnce());
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:recording-2");
+    await waitFor(() => expect(cleanup).toHaveBeenCalledTimes(3));
     cleanup.mockRestore();
   });
 

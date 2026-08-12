@@ -14,6 +14,14 @@ export interface CapabilityProbe {
   ): Promise<EncodingInfoResult>;
 }
 
+export function selectAudioRecorderMimeType(
+  isTypeSupported: (mimeType: string) => boolean,
+) {
+  return ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find(
+    isTypeSupported,
+  ) ?? null;
+}
+
 export async function selectRecorderCapability(
   options: RecordingOptions,
   probe: CapabilityProbe,

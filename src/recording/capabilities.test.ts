@@ -1,5 +1,20 @@
 import type { RecordingOptions } from "./types";
-import { selectRecorderCapability } from "./capabilities";
+import {
+  selectAudioRecorderMimeType,
+  selectRecorderCapability,
+} from "./capabilities";
+
+describe("selectAudioRecorderMimeType", () => {
+  it("selects the first supported audio-only container", () => {
+    expect(
+      selectAudioRecorderMimeType((mimeType) => mimeType === "audio/webm"),
+    ).toBe("audio/webm");
+  });
+
+  it("returns null when audio-only recording is unsupported", () => {
+    expect(selectAudioRecorderMimeType(() => false)).toBeNull();
+  });
+});
 
 const options: RecordingOptions = {
   width: 1620,

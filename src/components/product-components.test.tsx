@@ -169,21 +169,22 @@ describe("RecordingResult", () => {
     size: 2_000_000,
     type: "video/webm",
   };
-  const camera = {
-    url: "blob:camera",
-    fileName: "Excalicap-camera-20260729-120000.webm",
+  const materials = {
+    url: "blob:materials",
+    fileName: "Excalicap-原始素材-20260729-120000.zip",
     size: 1_000_000,
-    type: "video/webm",
+    type: "application/zip",
   };
 
-  it("shows separate composite and camera downloads", () => {
+  it("shows separate composite and raw-material downloads", () => {
     render(
       <RecordingResult
         error={null}
         open
         result={{
-          camera,
-          cameraError: null,
+          materials,
+          materialsDescription: "白板 + 激光笔、摄像头、声音",
+          materialsError: null,
           completedAt: 0,
           composite,
         }}
@@ -195,19 +196,20 @@ describe("RecordingResult", () => {
       screen.getByRole("link", { name: "下载合成视频" }),
     ).toHaveAttribute("href", "blob:composite");
     expect(
-      screen.getByRole("link", { name: "下载摄像头原片" }),
-    ).toHaveAttribute("href", "blob:camera");
-    expect(screen.getByText("原始矩形画面 + 麦克风声音")).toBeInTheDocument();
+      screen.getByRole("link", { name: "下载原始素材" }),
+    ).toHaveAttribute("href", "blob:materials");
+    expect(screen.getByText("白板 + 激光笔、摄像头、声音")).toBeInTheDocument();
   });
 
-  it("explains when the recording has no camera source", () => {
+  it("explains when no raw material can be packaged", () => {
     render(
       <RecordingResult
         error={null}
         open
         result={{
-          camera: null,
-          cameraError: null,
+          materials: null,
+          materialsDescription: "",
+          materialsError: null,
           completedAt: 0,
           composite,
         }}
@@ -216,21 +218,22 @@ describe("RecordingResult", () => {
     );
 
     expect(
-      screen.getByText("本次未启用摄像头，因此没有摄像头原片。"),
+      screen.getByText("本次没有可打包的原始素材。"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("link", { name: "下载摄像头原片" }),
+      screen.queryByRole("link", { name: "下载原始素材" }),
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the composite download when the camera recording fails", () => {
+  it("keeps the composite download when material packaging fails", () => {
     render(
       <RecordingResult
         error={null}
         open
         result={{
-          camera: null,
-          cameraError: "摄像头编码失败",
+          materials: null,
+          materialsDescription: "",
+          materialsError: "ZIP 生成失败",
           completedAt: 0,
           composite,
         }}
@@ -242,7 +245,7 @@ describe("RecordingResult", () => {
       screen.getByRole("link", { name: "下载合成视频" }),
     ).toBeEnabled();
     expect(
-      screen.getByText("摄像头原片生成失败：摄像头编码失败。合成成片仍可下载。"),
+      screen.getByText("原始素材生成失败：ZIP 生成失败。合成成片仍可下载。"),
     ).toBeInTheDocument();
   });
 
@@ -252,8 +255,9 @@ describe("RecordingResult", () => {
         error={null}
         open={false}
         result={{
-          camera,
-          cameraError: null,
+          materials,
+          materialsDescription: "白板 + 激光笔、摄像头、声音",
+          materialsError: null,
           completedAt: 0,
           composite,
         }}

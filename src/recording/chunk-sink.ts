@@ -28,6 +28,33 @@ export interface OpfsDirectory {
     options: { create: true },
   ): Promise<OpfsFileHandle>;
   removeEntry(name: string): Promise<void>;
+  entries?(): AsyncIterableIterator<[string, unknown]>;
+}
+
+const activeRecordingChunks = new Set<string>();
+const DEFAULT_MEMORY_LIMIT_BYTES = 512 * 1024 * 1024;
+const ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export async function removeOrphanedRecordingChunks(
+  dependencies: OpfsDependencies,
+  now = Date.now(),
+) {
+  const directory = await dependencies.getDirectory();
+  if (!directory.entries) {
+    return;
+  }
+  for await (const [name] of directory.entries()) {
+    const createdAt = Number(
+      /^excalicap-(\d+)-.+\.tmp$/.exec(name)?.[1] ?? Number.NaN,
+    );
+    if (
+      Number.isFinite(createdAt) &&
+      now - createdAt >= ORPHAN_MAX_AGE_MS &&
+      !activeRecordingChunks.has(name)
+    ) {
+      await directory.removeEntry(name);
+    }
+  }
 }
 
 export interface OpfsDependencies {
@@ -60,12 +87,19 @@ export function createSerialChunkSink(
   };
 }
 
-export function createMemoryChunkSink(): ChunkSink {
+export function createMemoryChunkSink(
+  maxBytes = DEFAULT_MEMORY_LIMIT_BYTES,
+): ChunkSink {
   const chunks: Blob[] = [];
+  let storedBytes = 0;
 
   return createSerialChunkSink({
     async write(blob) {
+      if (storedBytes + blob.size > maxBytes) {
+        throw new Error("录制临时数据超过 512 MiB 内存上限");
+      }
       chunks.push(blob);
+      storedBytes += blob.size;
     },
     async finish(mimeType) {
       return new Blob(chunks, { type: mimeType });
@@ -84,6 +118,7 @@ export async function createOpfsChunkSink(
   const fileHandle = await directory.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
   let closed = false;
+  activeRecordingChunks.add(fileName);
 
   return createSerialChunkSink({
     async write(blob) {
@@ -99,7 +134,11 @@ export async function createOpfsChunkSink(
       if (!closed) {
         await writable.abort();
       }
-      await directory.removeEntry(fileName);
+      try {
+        await directory.removeEntry(fileName);
+      } finally {
+        activeRecordingChunks.delete(fileName);
+      }
     },
   });
 }

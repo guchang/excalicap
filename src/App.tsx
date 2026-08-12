@@ -84,10 +84,14 @@ import {
   type ProjectSnapshot,
   type ProjectStorage,
 } from "./project/project-storage";
-import { selectRecorderCapability } from "./recording/capabilities";
+import {
+  selectAudioRecorderMimeType,
+  selectRecorderCapability,
+} from "./recording/capabilities";
 import {
   createMemoryChunkSink,
   createOpfsChunkSink,
+  removeOrphanedRecordingChunks,
   type ChunkSink,
   type OpfsDirectory,
 } from "./recording/chunk-sink";
@@ -98,6 +102,10 @@ import {
   type MediaTrackLike,
 } from "./recording/media-recorder-engine";
 import { DualRecordingSession } from "./recording/dual-recording-session";
+import {
+  createRecordingFileNames,
+  createStoredZip,
+} from "./recording/recording-artifacts";
 import { RecordingClock, formatRecordingTime } from "./recording/recording-clock";
 import type { RecorderCapability } from "./recording/types";
 import { createHighResolutionFileImporter } from "./rendering/high-resolution-file-import";
@@ -280,15 +288,19 @@ async function createTemporaryChunkSink(): Promise<{
   ) {
     try {
       const sink = await createOpfsChunkSink(
-        `excalicap-${crypto.randomUUID()}.tmp`,
+        `excalicap-${Date.now()}-${crypto.randomUUID()}.tmp`,
         {
           getDirectory: async () =>
             (await navigator.storage.getDirectory()) as unknown as OpfsDirectory,
         },
       );
       return { sink, kind: "OPFS" };
-    } catch {
-      return { sink: createMemoryChunkSink(), kind: "内存" };
+    } catch (error) {
+      throw new Error(
+        `无法创建录制临时文件：${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
   return { sink: createMemoryChunkSink(), kind: "内存" };
@@ -355,18 +367,6 @@ function hydrateNewFrames(
   });
 }
 
-function recordingFileNames(type: string, now = new Date()) {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(
-    now.getDate(),
-  )}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const extension = type.includes("mp4") ? "mp4" : "webm";
-  return {
-    composite: `Excalicap-${stamp}.${extension}`,
-    camera: `Excalicap-camera-${stamp}.${extension}`,
-  };
-}
-
 function createRecordingAsset(blob: Blob, fileName: string): RecordingAsset {
   return {
     url: URL.createObjectURL(blob),
@@ -381,8 +381,8 @@ function revokeRecordingResult(result: RecordingResultState | null) {
     return;
   }
   URL.revokeObjectURL(result.composite.url);
-  if (result.camera) {
-    URL.revokeObjectURL(result.camera.url);
+  if (result.materials) {
+    URL.revokeObjectURL(result.materials.url);
   }
 }
 
@@ -410,6 +410,7 @@ function downloadBlob(blob: Blob, fileName: string) {
 
 export interface AppProps {
   readonly projectStorage?: ProjectStorage;
+  readonly projectFileName?: string | null;
   readonly libraryAdapter?: PermanentLibraryAdapter;
   readonly showProjectFileActions?: boolean;
   readonly onProjectSaveHandleChange?: (
@@ -423,6 +424,7 @@ export interface ProjectSaveHandle {
 
 export default function App({
   projectStorage,
+  projectFileName = null,
   libraryAdapter,
   showProjectFileActions = true,
   onProjectSaveHandleChange,
@@ -468,6 +470,7 @@ export default function App({
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const productShellRef = useRef<HTMLElement | null>(null);
   const recordingCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const whiteboardRecordingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const cameraGestureRef = useRef<
     | {
@@ -480,13 +483,14 @@ export default function App({
     | undefined
   >(undefined);
   const compositorRef = useRef<Compositor | null>(null);
+  const whiteboardCompositorRef = useRef<Compositor | null>(null);
   const currentFrameRef = useRef<ActiveFrameBounds | null>(null);
   const recordingSessionRef = useRef<DualRecordingSession | null>(null);
   const retainedRecordingSessionRef = useRef<DualRecordingSession | null>(null);
   const preparingRef = useRef(false);
   const startingRef = useRef(false);
   const stoppingRef = useRef(false);
-  const captureStreamRef = useRef<MediaStreamLike | null>(null);
+  const captureStreamRefs = useRef<MediaStreamLike[]>([]);
   const acquiredMediaRef = useRef<AcquiredMedia | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const currentSlideIdRef = useRef(currentSlideId);
@@ -498,7 +502,7 @@ export default function App({
   const libraryAdapterRef = useRef<PermanentLibraryAdapter | null>(null);
   const projectFileGatewayRef = useRef<ProjectFileGateway | null>(null);
   const projectFileHandleRef = useRef<ProjectFileHandle | null>(null);
-  const projectFileNameRef = useRef<string | null>(null);
+  const projectFileNameRef = useRef<string | null>(projectFileName);
   const projectFileDirtyRef = useRef(true);
   const programmaticSceneChangeRef = useRef(false);
   const autosaveRef = useRef<AutosaveController | null>(null);
@@ -547,6 +551,16 @@ export default function App({
     onProjectSaveHandleChange?.(handle);
     return () => onProjectSaveHandleChange?.(null);
   }, [onProjectSaveHandleChange]);
+
+  useEffect(() => {
+    if (typeof navigator.storage?.getDirectory !== "function") {
+      return;
+    }
+    void removeOrphanedRecordingChunks({
+      getDirectory: async () =>
+        (await navigator.storage.getDirectory()) as unknown as OpfsDirectory,
+    }).catch(() => undefined);
+  }, []);
 
   const initialData = useMemo(
     () => ({
@@ -833,6 +847,7 @@ export default function App({
     stopCompositionLoop();
     const draw = () => {
       compositorRef.current?.draw();
+      whiteboardCompositorRef.current?.draw();
       animationFrameRef.current = requestAnimationFrame(draw);
     };
     draw();
@@ -847,29 +862,38 @@ export default function App({
     }
     compositorRef.current?.setCamera(null);
     compositorRef.current?.clearLaser();
+    whiteboardCompositorRef.current?.clearLaser();
   }, []);
 
   const stopCaptureStream = useCallback(() => {
-    const tracks = [
-      ...(captureStreamRef.current?.getVideoTracks() ?? []),
-      ...(captureStreamRef.current?.getAudioTracks() ?? []),
-    ];
+    const tracks = captureStreamRefs.current.flatMap((stream) => [
+      ...stream.getVideoTracks(),
+      ...stream.getAudioTracks(),
+    ]);
     new Set(tracks).forEach((track) => track.stop());
-    captureStreamRef.current = null;
+    captureStreamRefs.current = [];
   }, []);
 
   const ensureCompositor = useCallback(() => {
     const canvas = recordingCanvasRef.current;
-    if (!canvas) {
+    const whiteboardCanvas = whiteboardRecordingCanvasRef.current;
+    if (!canvas || !whiteboardCanvas) {
       throw new Error("录制画布尚未初始化");
     }
     compositorRef.current?.dispose();
+    whiteboardCompositorRef.current?.dispose();
     const compositor = createCompositor(canvas, profile, {
       padding: settings.canvas.padding,
       slideRadius: settings.canvas.slideRadius,
     });
+    const whiteboardCompositor = createCompositor(whiteboardCanvas, profile, {
+      padding: settings.canvas.padding,
+      slideRadius: settings.canvas.slideRadius,
+    });
     compositor.setBackground(settings.canvas.background);
+    whiteboardCompositor.setBackground(settings.canvas.background);
     compositorRef.current = compositor;
+    whiteboardCompositorRef.current = whiteboardCompositor;
     return compositor;
   }, [
     profile,
@@ -937,6 +961,8 @@ export default function App({
           const compositor = compositorRef.current ?? ensureCompositor();
           compositor.setWhiteboard(whiteboard);
           compositor.draw();
+          whiteboardCompositorRef.current?.setWhiteboard(whiteboard);
+          whiteboardCompositorRef.current?.draw();
           currentFrameRef.current = {
             id: frame.id,
             x: frame.x,
@@ -1170,8 +1196,14 @@ export default function App({
       return;
     }
     const canvas = recordingCanvasRef.current;
+    const whiteboardCanvas = whiteboardRecordingCanvasRef.current;
     const capability = preparation?.capability;
-    if (!canvas || !capability?.supported || !capability.mimeType) {
+    if (
+      !canvas ||
+      !whiteboardCanvas ||
+      !capability?.supported ||
+      !capability.mimeType
+    ) {
       return;
     }
     startingRef.current = true;
@@ -1198,19 +1230,39 @@ export default function App({
         acquiredMediaRef.current?.cameraStream as unknown as
           | MediaStreamLike
           | null;
-      const [compositeTask, cameraTask] = await Promise.all([
-        createTask(),
-        cameraStream ? createTask() : Promise.resolve(null),
-      ]);
-      const session = new DualRecordingSession(compositeTask, cameraTask);
+      const microphoneStream =
+        acquiredMediaRef.current
+          ?.microphoneStream as unknown as MediaStreamLike | null;
+      const audioMimeType = microphoneStream
+        ? selectAudioRecorderMimeType(
+            MediaRecorder.isTypeSupported.bind(MediaRecorder),
+          )
+        : null;
+      if (microphoneStream && !audioMimeType) {
+        throw new Error("当前环境不支持单独录制声音素材");
+      }
+      const [compositeTask, whiteboardTask, cameraTask, audioTask] =
+        await Promise.all([
+          createTask(),
+          createTask(),
+          cameraStream ? createTask() : Promise.resolve(null),
+          microphoneStream ? createTask() : Promise.resolve(null),
+        ]);
+      const session = new DualRecordingSession(
+        compositeTask,
+        whiteboardTask,
+        cameraTask,
+        audioTask,
+      );
       recordingSessionRef.current = session;
       await autosaveRef.current?.flush();
       const captureStream =
         canvas.captureStream(profile.fps) as unknown as MediaStreamLike;
-      captureStreamRef.current = captureStream;
-      const microphoneStream =
-        acquiredMediaRef.current
-          ?.microphoneStream as unknown as MediaStreamLike | null;
+      const whiteboardCaptureStream =
+        whiteboardCanvas.captureStream(
+          profile.fps,
+        ) as unknown as MediaStreamLike;
+      captureStreamRefs.current = [captureStream, whiteboardCaptureStream];
       const recorder = {
         mimeType: capability.mimeType,
         videoBitsPerSecond: capability.options.videoBitsPerSecond,
@@ -1222,11 +1274,26 @@ export default function App({
           microphoneStream,
           recorder,
         },
+        {
+          videoStream: whiteboardCaptureStream,
+          microphoneStream: null,
+          recorder,
+        },
         cameraStream
           ? {
               videoStream: cameraStream,
-              microphoneStream,
+              microphoneStream: null,
               recorder,
+            }
+          : null,
+        microphoneStream
+          ? {
+              videoStream: null,
+              microphoneStream,
+              recorder: {
+                mimeType: audioMimeType!,
+                audioBitsPerSecond: capability.options.audioBitsPerSecond,
+              },
             }
           : null,
       );
@@ -1297,19 +1364,43 @@ export default function App({
       stopCompositionLoop();
       stopCaptureStream();
       stopDevices();
-      const names = recordingFileNames(result.composite.type);
+      const names = createRecordingFileNames(
+        projectFileNameRef.current,
+        result.composite.type,
+        result.whiteboard?.type ?? result.composite.type,
+        result.audio?.type ?? "audio/webm",
+      );
       const composite = createRecordingAsset(
         result.composite,
         names.composite,
       );
-      let camera: RecordingAsset | null = null;
+      let materials: RecordingAsset | null = null;
+      let materialsError =
+        result.whiteboardError?.message ??
+        result.cameraError?.message ??
+        result.audioError?.message ??
+        null;
+      const materialLabels: string[] = [];
       try {
-        camera = result.camera
-          ? createRecordingAsset(result.camera, names.camera)
-          : null;
+        if (!materialsError && result.whiteboard) {
+          const entries = [
+            { name: names.whiteboard, blob: result.whiteboard },
+          ];
+          materialLabels.push("白板 + 激光笔");
+          if (result.camera) {
+            entries.push({ name: names.camera, blob: result.camera });
+            materialLabels.push("摄像头");
+          }
+          if (result.audio) {
+            entries.push({ name: names.audio, blob: result.audio });
+            materialLabels.push("声音");
+          }
+          const zip = await createStoredZip(entries);
+          materials = createRecordingAsset(zip, names.materials);
+        }
       } catch (error) {
-        URL.revokeObjectURL(composite.url);
-        throw error;
+        materialsError =
+          error instanceof Error ? error.message : "无法创建 ZIP 素材包";
       }
       try {
         await retainedRecordingSessionRef.current?.cleanup();
@@ -1324,8 +1415,9 @@ export default function App({
       recordingSessionRef.current = null;
       setRecordingResult({
         composite,
-        camera,
-        cameraError: result.cameraError?.message ?? null,
+        materials,
+        materialsDescription: materialLabels.join("、"),
+        materialsError,
         completedAt: Date.now(),
       });
       setRecordingError(null);
@@ -1362,6 +1454,7 @@ export default function App({
       selectSlide(slideId);
       latestRenderRef.current.invalidate();
       compositorRef.current?.clearLaser();
+      whiteboardCompositorRef.current?.clearLaser();
       if (api && frame) {
         focusSlide(
           api,
@@ -1390,6 +1483,7 @@ export default function App({
       }
       const hydratedElements = hydrateNewFrames(mutation.elements);
       compositorRef.current?.clearLaser();
+      whiteboardCompositorRef.current?.clearLaser();
       api.updateScene({ elements: excalidrawElements(hydratedElements) });
       setSlides(getSlides(hydratedElements));
       selectSlide(mutation.currentSlideId);
@@ -1629,6 +1723,8 @@ export default function App({
           (whiteboard) => {
             compositorRef.current?.setWhiteboard(whiteboard);
             compositorRef.current?.draw();
+            whiteboardCompositorRef.current?.setWhiteboard(whiteboard);
+            whiteboardCompositorRef.current?.draw();
             currentFrameRef.current = {
               id: frame.id,
               x: frame.x,
@@ -1662,26 +1758,36 @@ export default function App({
         return;
       }
       if (pointer.tool === "laser") {
-        compositorRef.current.setCursor(null);
-        compositorRef.current.updateLaser({
+        for (const compositor of [
+          compositorRef.current,
+          whiteboardCompositorRef.current,
+        ]) {
+          compositor?.setCursor(null);
+          compositor?.updateLaser({
+            editorX: pointer.x,
+            editorY: pointer.y,
+            frame,
+            button,
+            visible: settings.cursor.enabled,
+            color: settings.cursor.color,
+          });
+          compositor?.draw();
+        }
+        return;
+      }
+      for (const compositor of [
+        compositorRef.current,
+        whiteboardCompositorRef.current,
+      ]) {
+        compositor?.setCursor({
           editorX: pointer.x,
           editorY: pointer.y,
           frame,
-          button,
           visible: settings.cursor.enabled,
           color: settings.cursor.color,
         });
-        compositorRef.current.draw();
-        return;
+        compositor?.draw();
       }
-      compositorRef.current.setCursor({
-        editorX: pointer.x,
-        editorY: pointer.y,
-        frame,
-        visible: settings.cursor.enabled,
-        color: settings.cursor.color,
-      });
-      compositorRef.current.draw();
     },
     [settings.cursor],
   );
@@ -1739,6 +1845,8 @@ export default function App({
       setSettingsOpen(false);
       compositorRef.current?.dispose();
       compositorRef.current = null;
+      whiteboardCompositorRef.current?.dispose();
+      whiteboardCompositorRef.current = null;
       setNotice("设置已应用；现有 Slide 已统一为所选画幅");
     },
     [],
@@ -1900,6 +2008,7 @@ export default function App({
         stopCompositionLoop();
         stopDevices();
         compositorRef.current?.dispose();
+        whiteboardCompositorRef.current?.dispose();
       };
     },
     [stopCaptureStream, stopCompositionLoop, stopDevices],
@@ -2146,6 +2255,13 @@ export default function App({
         className="recording-canvas"
         height={profile.height}
         ref={recordingCanvasRef}
+        width={profile.width}
+      />
+      <canvas
+        aria-label="白板素材 Canvas"
+        className="recording-canvas"
+        height={profile.height}
+        ref={whiteboardRecordingCanvasRef}
         width={profile.width}
       />
       <div

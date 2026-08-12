@@ -40,7 +40,7 @@ export interface MediaRecorderEngineDependencies {
 }
 
 export interface MediaRecorderStartOptions {
-  readonly videoStream: MediaStreamLike;
+  readonly videoStream: MediaStreamLike | null;
   readonly microphoneStream: MediaStreamLike | null;
   readonly recorder: MediaRecorderOptions & { mimeType: string };
 }
@@ -67,12 +67,14 @@ export class MediaRecorderEngine {
       throw new Error(`Cannot start while recorder is ${this.currentState}`);
     }
 
-    const video = options.videoStream.getVideoTracks()[0];
-    if (!video) {
-      throw new Error("Video stream has no video track");
-    }
+    const video = options.videoStream?.getVideoTracks()[0];
     const microphoneAudio = options.microphoneStream?.getAudioTracks()[0];
-    const tracks = microphoneAudio ? [video, microphoneAudio] : [video];
+    const tracks = [video, microphoneAudio].filter(
+      (track): track is MediaTrackLike => Boolean(track),
+    );
+    if (tracks.length === 0) {
+      throw new Error("Recording stream has no media track");
+    }
 
     const stream = this.dependencies.createMediaStream(tracks);
     this.recorder = this.dependencies.createRecorder(stream, options.recorder);

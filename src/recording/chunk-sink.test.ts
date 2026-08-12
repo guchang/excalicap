@@ -2,6 +2,7 @@ import {
   createMemoryChunkSink,
   createOpfsChunkSink,
   createSerialChunkSink,
+  removeOrphanedRecordingChunks,
 } from "./chunk-sink";
 
 describe("createSerialChunkSink", () => {
@@ -66,6 +67,30 @@ describe("createSerialChunkSink", () => {
   });
 });
 
+describe("removeOrphanedRecordingChunks", () => {
+  it("removes only expired Excalicap temporary recording files", async () => {
+    const removeEntry = vi.fn(async () => undefined);
+    const now = new Date(2026, 7, 12, 12).getTime();
+    await removeOrphanedRecordingChunks({
+      getDirectory: async () => ({
+        getFileHandle: vi.fn(),
+        removeEntry,
+        async *entries() {
+          yield [`excalicap-${now - 86_400_000}-old.tmp`, {}] as [string, unknown];
+          yield [`excalicap-${now}-active.tmp`, {}] as [string, unknown];
+          yield ["another-app.tmp", {}] as [string, unknown];
+          yield ["excalicap-project.json", {}] as [string, unknown];
+        },
+      }),
+    }, now);
+
+    expect(removeEntry).toHaveBeenCalledOnce();
+    expect(removeEntry).toHaveBeenCalledWith(
+      `excalicap-${now - 86_400_000}-old.tmp`,
+    );
+  });
+});
+
 describe("createMemoryChunkSink", () => {
   it("returns the concatenated recording and reports temporary bytes", async () => {
     const sink = createMemoryChunkSink();
@@ -77,6 +102,15 @@ describe("createMemoryChunkSink", () => {
     expect(await result.text()).toBe("onetwo");
     expect(result.type).toBe("video/webm");
     expect(sink.temporaryBytes).toBe(6);
+  });
+
+  it("rejects writes beyond its configured memory limit", async () => {
+    const sink = createMemoryChunkSink(5);
+    await sink.write(new Blob(["1234"]));
+
+    await expect(sink.write(new Blob(["56"]))).rejects.toThrow(
+      "内存上限",
+    );
   });
 });
 

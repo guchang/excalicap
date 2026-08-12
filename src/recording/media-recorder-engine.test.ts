@@ -111,6 +111,19 @@ describe("MediaRecorderEngine", () => {
     expect(engine.state).toBe("recording");
   });
 
+  it("records an audio-only material when no video stream is provided", async () => {
+    const microphone = new FakeTrack("audio");
+    const { engine, getCombinedTracks } = createEngine();
+
+    await engine.start({
+      videoStream: null,
+      microphoneStream: new FakeStream([microphone]),
+      recorder: { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 192_000 },
+    });
+
+    expect(getCombinedTracks()).toEqual([microphone]);
+  });
+
   it("writes every non-empty chunk and waits for the final recording", async () => {
     const { engine, getRecorder } = createEngine();
     await engine.start({

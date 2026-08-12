@@ -47,9 +47,10 @@ const cameraOptions = {
 describe("DualRecordingSession", () => {
   it("controls only the composite task when no camera task exists", async () => {
     const composite = createTask(new Blob(["composite"]));
-    const session = new DualRecordingSession(composite, null);
+    const whiteboard = createTask(new Blob(["whiteboard"]));
+    const session = new DualRecordingSession(composite, whiteboard, null, null);
 
-    await session.start(compositeOptions, null);
+    await session.start(compositeOptions, compositeOptions, null, null);
     await session.pause();
     await session.resume();
     const result = await session.stop();
@@ -58,6 +59,7 @@ describe("DualRecordingSession", () => {
     expect(composite.pause).toHaveBeenCalledOnce();
     expect(composite.resume).toHaveBeenCalledOnce();
     expect(await result.composite.text()).toBe("composite");
+    expect(await result.whiteboard?.text()).toBe("whiteboard");
     expect(result.camera).toBeNull();
     expect(result.cameraError).toBeNull();
   });
@@ -65,21 +67,31 @@ describe("DualRecordingSession", () => {
   it("starts and transports both recording tasks together", async () => {
     const composite = createTask(new Blob(["composite"]));
     const camera = createTask(new Blob(["camera"]));
-    const session = new DualRecordingSession(composite, camera);
+    const whiteboard = createTask(new Blob(["whiteboard"]));
+    const audio = createTask(new Blob(["audio"]));
+    const session = new DualRecordingSession(composite, whiteboard, camera, audio);
 
-    await session.start(compositeOptions, cameraOptions);
+    await session.start(
+      compositeOptions,
+      compositeOptions,
+      cameraOptions,
+      compositeOptions,
+    );
     await session.pause();
     await session.resume();
     const result = await session.stop();
 
     expect(composite.start).toHaveBeenCalledWith(compositeOptions);
     expect(camera.start).toHaveBeenCalledWith(cameraOptions);
+    expect(whiteboard.start).toHaveBeenCalledWith(compositeOptions);
+    expect(audio.start).toHaveBeenCalledWith(compositeOptions);
     expect(composite.pause).toHaveBeenCalledOnce();
     expect(camera.pause).toHaveBeenCalledOnce();
     expect(composite.resume).toHaveBeenCalledOnce();
     expect(camera.resume).toHaveBeenCalledOnce();
     expect(await result.composite.text()).toBe("composite");
     expect(await result.camera?.text()).toBe("camera");
+    expect(await result.audio?.text()).toBe("audio");
     expect(result.cameraError).toBeNull();
   });
 
@@ -87,9 +99,10 @@ describe("DualRecordingSession", () => {
     const composite = createTask(new Blob(["composite"]));
     const cameraError = new Error("摄像头编码失败");
     const camera = createTask(cameraError);
-    const session = new DualRecordingSession(composite, camera);
+    const whiteboard = createTask(new Blob(["whiteboard"]));
+    const session = new DualRecordingSession(composite, whiteboard, camera, null);
 
-    await session.start(compositeOptions, cameraOptions);
+    await session.start(compositeOptions, compositeOptions, cameraOptions, null);
     const result = await session.stop();
 
     expect(await result.composite.text()).toBe("composite");
@@ -101,9 +114,10 @@ describe("DualRecordingSession", () => {
     const compositeError = new Error("合成录制失败");
     const composite = createTask(compositeError);
     const camera = createTask(new Blob(["camera"]));
-    const session = new DualRecordingSession(composite, camera);
+    const whiteboard = createTask(new Blob(["whiteboard"]));
+    const session = new DualRecordingSession(composite, whiteboard, camera, null);
 
-    await session.start(compositeOptions, cameraOptions);
+    await session.start(compositeOptions, compositeOptions, cameraOptions, null);
 
     await expect(session.stop()).rejects.toThrow("合成录制失败");
     expect(camera.abort).toHaveBeenCalledOnce();
@@ -112,16 +126,19 @@ describe("DualRecordingSession", () => {
   it("cleans up retained temporary data only when explicitly requested", async () => {
     const composite = createTask(new Blob(["composite"]));
     const camera = createTask(new Blob(["camera"]));
-    const session = new DualRecordingSession(composite, camera);
+    const whiteboard = createTask(new Blob(["whiteboard"]));
+    const session = new DualRecordingSession(composite, whiteboard, camera, null);
 
-    await session.start(compositeOptions, cameraOptions);
+    await session.start(compositeOptions, compositeOptions, cameraOptions, null);
     await session.stop();
 
     expect(composite.cleanup).not.toHaveBeenCalled();
+    expect(whiteboard.cleanup).not.toHaveBeenCalled();
     expect(camera.cleanup).not.toHaveBeenCalled();
 
     await session.cleanup();
     expect(composite.cleanup).toHaveBeenCalledOnce();
+    expect(whiteboard.cleanup).toHaveBeenCalledOnce();
     expect(camera.cleanup).toHaveBeenCalledOnce();
   });
 
@@ -129,7 +146,8 @@ describe("DualRecordingSession", () => {
     const cleanupError = new Error("无法删除临时文件");
     const composite = createTask();
     composite.cleanup.mockRejectedValue(cleanupError);
-    const session = new DualRecordingSession(composite, null);
+    const whiteboard = createTask();
+    const session = new DualRecordingSession(composite, whiteboard, null, null);
 
     await expect(session.cleanup()).rejects.toBe(cleanupError);
   });

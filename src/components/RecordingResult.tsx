@@ -7,8 +7,9 @@ export interface RecordingAsset {
 
 export interface RecordingResultState {
   readonly composite: RecordingAsset;
-  readonly camera: RecordingAsset | null;
-  readonly cameraError: string | null;
+  readonly materials: RecordingAsset | null;
+  readonly materialsDescription: string;
+  readonly materialsError: string | null;
   readonly completedAt: number;
 }
 
@@ -67,26 +68,26 @@ export function RecordingResult(props: RecordingResultProps) {
                   下载合成视频
                 </a>
               </article>
-              {props.result.camera ? (
+              {props.result.materials ? (
                 <article className="recording-result-asset">
-                  <h3>摄像头原片</h3>
-                  <p>原始矩形画面 + 麦克风声音</p>
-                  <small>{formatAsset(props.result.camera)}</small>
+                  <h3>原始素材</h3>
+                  <p>{props.result.materialsDescription}</p>
+                  <small>{formatAsset(props.result.materials)}</small>
                   <a
                     className="download-video-button"
-                    download={props.result.camera.fileName}
-                    href={props.result.camera.url}
+                    download={props.result.materials.fileName}
+                    href={props.result.materials.url}
                   >
-                    下载摄像头原片
+                    下载原始素材
                   </a>
                 </article>
-              ) : props.result.cameraError ? (
+              ) : props.result.materialsError ? (
                 <p className="recording-camera-note recording-camera-error">
-                  摄像头原片生成失败：{props.result.cameraError}。合成成片仍可下载。
+                  原始素材生成失败：{props.result.materialsError}。合成成片仍可下载。
                 </p>
               ) : (
                 <p className="recording-camera-note">
-                  本次未启用摄像头，因此没有摄像头原片。
+                  本次没有可打包的原始素材。
                 </p>
               )}
             </div>

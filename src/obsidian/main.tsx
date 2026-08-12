@@ -89,6 +89,7 @@ class ExcalicapView extends TextFileView {
       <App
         libraryAdapter={libraryAdapter}
         onProjectSaveHandleChange={this.setProjectSaveHandle}
+        projectFileName={this.file?.name ?? null}
         projectStorage={projectStorage}
         showProjectFileActions={false}
       />,
