@@ -41,6 +41,7 @@ export const DEFAULT_SETTINGS: ProductSettings = {
   },
   teleprompter: {
     text: "",
+    fontSize: 22,
     speed: 8,
     opacity: 0.88,
     width: 420,

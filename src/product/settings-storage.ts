@@ -113,6 +113,12 @@ export function loadProductSettings(
       : camera.size;
   const teleprompterSettings: TeleprompterSettings = {
     text: stringValue(teleprompter.text, DEFAULT_SETTINGS.teleprompter.text),
+    fontSize: finiteInRange(
+      teleprompter.fontSize,
+      16,
+      48,
+      DEFAULT_SETTINGS.teleprompter.fontSize,
+    ),
     speed: finiteInRange(
       teleprompter.speed,
       1,

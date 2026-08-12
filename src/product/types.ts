@@ -35,6 +35,7 @@ export interface CursorSettings {
 
 export interface TeleprompterSettings {
   readonly text: string;
+  readonly fontSize: number;
   readonly speed: number;
   readonly opacity: number;
   readonly width: number;

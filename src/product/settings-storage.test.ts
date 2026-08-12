@@ -76,6 +76,32 @@ describe("product settings storage", () => {
     ).toBe(true);
   });
 
+  it("loads a saved teleprompter font size and defaults legacy settings", () => {
+    const withFontSize = {
+      ...DEFAULT_SETTINGS,
+      teleprompter: { ...DEFAULT_SETTINGS.teleprompter, fontSize: 32 },
+    };
+    const legacy = {
+      ...DEFAULT_SETTINGS,
+      teleprompter: {
+        text: "旧讲稿",
+        speed: 8,
+        opacity: 0.88,
+        width: 420,
+        height: 260,
+      },
+    };
+
+    expect(
+      loadProductSettings(createStorage(JSON.stringify(withFontSize)))
+        .teleprompter.fontSize,
+    ).toBe(32);
+    expect(
+      loadProductSettings(createStorage(JSON.stringify(legacy))).teleprompter
+        .fontSize,
+    ).toBe(DEFAULT_SETTINGS.teleprompter.fontSize);
+  });
+
   it("migrates legacy camera sizes and repairs invalid camera placement", () => {
     const legacy = {
       ...DEFAULT_SETTINGS,

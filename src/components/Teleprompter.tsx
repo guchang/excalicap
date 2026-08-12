@@ -22,6 +22,7 @@ export function Teleprompter(props: TeleprompterProps) {
     top: 88,
   }));
   const textRef = useRef<HTMLTextAreaElement | null>(null);
+  const scrollCarryRef = useRef(0);
   const settingsRef = useRef(props.settings);
   const onChangeRef = useRef(props.onChange);
   settingsRef.current = props.settings;
@@ -120,11 +121,17 @@ export function Teleprompter(props: TeleprompterProps) {
 
   useEffect(() => {
     if (!scrolling) {
+      scrollCarryRef.current = 0;
       return;
     }
     const timer = window.setInterval(() => {
       if (textRef.current) {
-        textRef.current.scrollTop += props.settings.speed / 20;
+        scrollCarryRef.current += props.settings.speed / 20;
+        const wholePixels = Math.floor(scrollCarryRef.current + 1e-9);
+        if (wholePixels > 0) {
+          textRef.current.scrollTop += wholePixels;
+          scrollCarryRef.current -= wholePixels;
+        }
       }
     }, 50);
     return () => window.clearInterval(timer);
@@ -177,6 +184,7 @@ export function Teleprompter(props: TeleprompterProps) {
         }
         placeholder="在这里粘贴你的讲稿…"
         ref={textRef}
+        style={{ fontSize: `${props.settings.fontSize}px` }}
         value={props.settings.text}
       />
       <footer>
@@ -204,6 +212,23 @@ export function Teleprompter(props: TeleprompterProps) {
               }
               type="range"
               value={props.settings.speed}
+            />
+          </label>
+          <label>
+            字体
+            <span>{props.settings.fontSize}px</span>
+            <input
+              aria-label="字体大小"
+              max="48"
+              min="16"
+              onChange={(event) =>
+                props.onChange({
+                  ...props.settings,
+                  fontSize: Number(event.target.value),
+                })
+              }
+              type="range"
+              value={props.settings.fontSize}
             />
           </label>
           <label>
