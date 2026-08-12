@@ -22,8 +22,8 @@ describe("Teleprompter", () => {
     const script = screen.getByLabelText("提词器文字");
     const fontSize = screen.getByLabelText("字体大小");
 
-    expect(fontSize).toHaveAttribute("min", "16");
-    expect(fontSize).toHaveAttribute("max", "48");
+    expect(fontSize).toHaveAttribute("min", "8");
+    expect(fontSize).toHaveAttribute("max", "40");
     expect(script).toHaveStyle({ fontSize: "22px" });
 
     fireEvent.change(fontSize, { target: { value: "32" } });
@@ -42,6 +42,7 @@ describe("Teleprompter", () => {
       />,
     );
     const script = screen.getByLabelText("提词器文字");
+    const speed = screen.getByLabelText("滚动速度");
     let integerScrollTop = 0;
     Object.defineProperty(script, "scrollTop", {
       configurable: true,
@@ -51,6 +52,8 @@ describe("Teleprompter", () => {
       },
     });
 
+    expect(speed).toHaveAttribute("min", "1");
+    expect(speed).toHaveAttribute("max", "20");
     fireEvent.click(screen.getByRole("button", { name: "开始滚动" }));
     act(() => vi.advanceTimersByTime(1_000));
 

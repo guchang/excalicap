@@ -76,10 +76,22 @@ describe("product settings storage", () => {
     ).toBe(true);
   });
 
-  it("loads a saved teleprompter font size and defaults legacy settings", () => {
-    const withFontSize = {
+  it("loads teleprompter range boundaries and defaults legacy settings", () => {
+    const atBoundaries = {
       ...DEFAULT_SETTINGS,
-      teleprompter: { ...DEFAULT_SETTINGS.teleprompter, fontSize: 32 },
+      teleprompter: {
+        ...DEFAULT_SETTINGS.teleprompter,
+        fontSize: 8,
+        speed: 20,
+      },
+    };
+    const aboveBoundaries = {
+      ...DEFAULT_SETTINGS,
+      teleprompter: {
+        ...DEFAULT_SETTINGS.teleprompter,
+        fontSize: 41,
+        speed: 21,
+      },
     };
     const legacy = {
       ...DEFAULT_SETTINGS,
@@ -93,9 +105,20 @@ describe("product settings storage", () => {
     };
 
     expect(
-      loadProductSettings(createStorage(JSON.stringify(withFontSize)))
+      loadProductSettings(createStorage(JSON.stringify(atBoundaries)))
         .teleprompter.fontSize,
-    ).toBe(32);
+    ).toBe(8);
+    expect(
+      loadProductSettings(createStorage(JSON.stringify(atBoundaries)))
+        .teleprompter.speed,
+    ).toBe(20);
+    expect(
+      loadProductSettings(createStorage(JSON.stringify(aboveBoundaries)))
+        .teleprompter,
+    ).toMatchObject({
+      fontSize: DEFAULT_SETTINGS.teleprompter.fontSize,
+      speed: DEFAULT_SETTINGS.teleprompter.speed,
+    });
     expect(
       loadProductSettings(createStorage(JSON.stringify(legacy))).teleprompter
         .fontSize,

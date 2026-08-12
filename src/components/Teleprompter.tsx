@@ -202,7 +202,7 @@ export function Teleprompter(props: TeleprompterProps) {
             <span>{props.settings.speed} px/s</span>
             <input
               aria-label="滚动速度"
-              max="40"
+              max="20"
               min="1"
               onChange={(event) =>
                 props.onChange({
@@ -219,8 +219,8 @@ export function Teleprompter(props: TeleprompterProps) {
             <span>{props.settings.fontSize}px</span>
             <input
               aria-label="字体大小"
-              max="48"
-              min="16"
+              max="40"
+              min="8"
               onChange={(event) =>
                 props.onChange({
                   ...props.settings,

@@ -115,14 +115,14 @@ export function loadProductSettings(
     text: stringValue(teleprompter.text, DEFAULT_SETTINGS.teleprompter.text),
     fontSize: finiteInRange(
       teleprompter.fontSize,
-      16,
-      48,
+      8,
+      40,
       DEFAULT_SETTINGS.teleprompter.fontSize,
     ),
     speed: finiteInRange(
       teleprompter.speed,
       1,
-      40,
+      20,
       DEFAULT_SETTINGS.teleprompter.speed,
     ),
     opacity: finiteInRange(

@@ -869,7 +869,7 @@ describe("Teleprompter", () => {
     const speed = screen.getByLabelText("滚动速度");
 
     expect(speed).toHaveAttribute("min", "1");
-    expect(speed).toHaveAttribute("max", "40");
+    expect(speed).toHaveAttribute("max", "20");
     expect(screen.getByText("8 px/s")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "开始滚动" }));
     act(() => vi.advanceTimersByTime(1_000));
