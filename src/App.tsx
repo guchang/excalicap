@@ -64,6 +64,10 @@ import {
 import type { ProductSettings } from "./product/types";
 import type { CameraSettings } from "./product/types";
 import {
+  defaultPresentationFontSize,
+  installPresentationFontSizeControls,
+} from "./presentation/font-size-presets";
+import {
   createBrowserPermanentLibraryAdapter,
   createPermanentLibraryAdapter,
   deduplicateLibraryItems,
@@ -565,11 +569,28 @@ export default function App({
   const initialData = useMemo(
     () => ({
       elements: initialElements,
-      appState: { viewBackgroundColor: "#ffffff" },
+      appState: {
+        viewBackgroundColor: "#ffffff",
+        currentItemFontSize: defaultPresentationFontSize(
+          Math.min(profile.width, profile.height),
+        ),
+      },
       scrollToContent: true,
     }),
-    [],
+    [profile.height, profile.width],
   );
+
+  useEffect(() => {
+    const root = productShellRef.current;
+    if (!root) {
+      return;
+    }
+    return installPresentationFontSizeControls(
+      root,
+      Math.min(profile.width, profile.height),
+      (fontSize) => apiRef.current?.setFontSize(fontSize),
+    );
+  }, [profile.height, profile.width]);
 
   const snapshotFrom = useCallback(
     (
@@ -1837,6 +1858,11 @@ export default function App({
         );
         api.updateScene({
           elements: excalidrawElements(normalizedElements),
+          appState: {
+            currentItemFontSize: defaultPresentationFontSize(
+              Math.min(nextProfile.width, nextProfile.height),
+            ),
+          },
         });
         setSlides(getSlides(normalizedElements));
       }
