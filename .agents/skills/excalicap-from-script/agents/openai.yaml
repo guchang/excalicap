@@ -1,0 +1,4 @@
+interface:
+  display_name: "口播稿生成 Excalicap"
+  short_description: "把中文口播稿拆成原生可编辑的 Excalicap Slides"
+  default_prompt: "使用 $excalicap-from-script 根据这份口播稿创建或更新当前 Excalicap 项目。"

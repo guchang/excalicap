@@ -2,6 +2,19 @@
   "name": "excalicap",
   "private": true,
   "version": "0.1.0",
+  "description": "本地优先的 Excalidraw 白板视频创作与录制工具",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guchang/excalicap.git"
+  },
+  "bugs": {
+    "url": "https://github.com/guchang/excalicap/issues"
+  },
+  "homepage": "https://github.com/guchang/excalicap#readme",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "npm run patch:excalidraw && vite",
