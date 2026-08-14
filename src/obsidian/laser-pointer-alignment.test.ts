@@ -4,6 +4,7 @@ import { alignLaserPointerLayer } from "./laser-pointer-alignment";
 function createLayer(left: number, top: number) {
   const layer = document.createElement("div");
   layer.className = "SVGLayer";
+  layer.setCssStyles = vi.fn((styles) => Object.assign(layer.style, styles));
   layer.getBoundingClientRect = vi.fn(() => ({
     bottom: top + 600,
     height: 600,

@@ -1,9 +1,9 @@
 {
   "id": "excalicap",
   "name": "Excalicap",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.7.2",
-  "description": "在 Obsidian 中创作并录制 Excalidraw 白板视频。",
+  "description": "Create and record high-resolution videos from Excalidraw slides.",
   "author": "Page",
   "isDesktopOnly": true
 }

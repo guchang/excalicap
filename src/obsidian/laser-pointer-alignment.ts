@@ -1,8 +1,8 @@
 export function alignLaserPointerLayer(layer: HTMLElement) {
-  layer.style.transform = "";
+  layer.setCssStyles({ transform: "" });
   const { left, top } = layer.getBoundingClientRect();
   if (left !== 0 || top !== 0) {
-    layer.style.transform = `translate(${-left}px, ${-top}px)`;
+    layer.setCssStyles({ transform: `translate(${-left}px, ${-top}px)` });
   }
 }
 
