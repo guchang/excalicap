@@ -66,7 +66,9 @@ npm run build
 
 ### 安装 Obsidian 插件
 
-普通用户可以从 [`v0.1.0-alpha.1` Release](https://github.com/guchang/excalicap/releases/tag/v0.1.0-alpha.1) 下载 `excalicap-v0.1.0-alpha.1.zip`，解压到目标 Vault 的：
+Excalicap 正在提交 Obsidian Community Plugins 审核。审核通过后，可在 Obsidian 的“设置 → 第三方插件 → 浏览”中搜索 `Excalicap` 并直接安装。
+
+在社区目录正式可用前，或需要包含完整本地字体资源的离线安装包时，可以从 [`0.1.0` Release](https://github.com/guchang/excalicap/releases/tag/0.1.0) 下载 `excalicap-0.1.0.zip`，解压到目标 Vault 的：
 
 ```text
 <你的 Obsidian Vault>/.obsidian/plugins/excalicap/
@@ -74,7 +76,14 @@ npm run build
 
 确认解压后的 `excalicap/` 目录顶层直接包含 `main.js`、`manifest.json`、`styles.css` 和 `excalidraw-assets/`，然后在 Obsidian 的“设置 → 第三方插件”中重新加载并启用 Excalicap。
 
-这是 Alpha 预发布版本，尚未进入 Obsidian Community Plugins 目录。
+这是 Alpha 版本，项目格式和功能仍可能调整，请先备份重要项目文件和录制成品。
+
+### 网络与数据边界
+
+- 项目文件、素材库配置和录制结果默认保存在本机，不上传到 Excalicap 服务。
+- 摄像头和麦克风只在用户主动授权后用于本地录制。
+- Obsidian Community Plugins 只安装 `main.js`、`manifest.json` 和 `styles.css`。社区版在本地没有相应字体缓存时，Excalidraw 可能从其固定版本的官方字体 CDN 加载字体；不执行远程代码，也不包含遥测。
+- 需要完全离线使用时，请安装 GitHub Release 中包含 `excalidraw-assets/` 的完整 ZIP。
 
 ### 从源码构建 Obsidian 插件
 
