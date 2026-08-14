@@ -64,7 +64,19 @@ npm run build
 
 生产构建输出到 `dist/`。
 
-### 构建并安装 Obsidian 插件
+### 安装 Obsidian 插件
+
+普通用户可以从 [`v0.1.0-alpha.1` Release](https://github.com/guchang/excalicap/releases/tag/v0.1.0-alpha.1) 下载 `excalicap-v0.1.0-alpha.1.zip`，解压到目标 Vault 的：
+
+```text
+<你的 Obsidian Vault>/.obsidian/plugins/excalicap/
+```
+
+确认解压后的 `excalicap/` 目录顶层直接包含 `main.js`、`manifest.json`、`styles.css` 和 `excalidraw-assets/`，然后在 Obsidian 的“设置 → 第三方插件”中重新加载并启用 Excalicap。
+
+这是 Alpha 预发布版本，尚未进入 Obsidian Community Plugins 目录。
+
+### 从源码构建 Obsidian 插件
 
 ```bash
 npm run build:obsidian
