@@ -112,7 +112,7 @@ export function loadProductSettings(
       ? legacyCameraSizes[camera.size]
       : camera.size;
   const teleprompterSettings: TeleprompterSettings = {
-    text: stringValue(teleprompter.text, DEFAULT_SETTINGS.teleprompter.text),
+    text: DEFAULT_SETTINGS.teleprompter.text,
     fontSize: finiteInRange(
       teleprompter.fontSize,
       8,
@@ -228,9 +228,43 @@ export function loadProductSettings(
   };
 }
 
+export function takeLegacyTeleprompterText(storage: SettingsStorage) {
+  const serialized = storage.getItem(SETTINGS_STORAGE_KEY);
+  if (!serialized) {
+    return "";
+  }
+  try {
+    const parsed = objectValue(JSON.parse(serialized));
+    const teleprompter = objectValue(parsed.teleprompter);
+    const text = stringValue(teleprompter.text, "");
+    if (!text) {
+      return "";
+    }
+    storage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...parsed,
+        teleprompter: { ...teleprompter, text: "" },
+      }),
+    );
+    return text;
+  } catch {
+    return "";
+  }
+}
+
 export function saveProductSettings(
   storage: SettingsStorage,
   settings: ProductSettings,
 ) {
-  storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  storage.setItem(
+    SETTINGS_STORAGE_KEY,
+    JSON.stringify({
+      ...settings,
+      teleprompter: {
+        ...settings.teleprompter,
+        text: DEFAULT_SETTINGS.teleprompter.text,
+      },
+    }),
+  );
 }

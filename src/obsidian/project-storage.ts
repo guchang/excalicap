@@ -6,8 +6,14 @@ import {
 
 export interface ObsidianProjectFilePort {
   read(): string;
+  readPersisted?(): Promise<string>;
   write(data: string): void;
   requestSave(): void;
+  persist?(): Promise<void>;
+}
+
+export interface ObsidianProjectStorage extends ProjectStorage {
+  acceptExternalData(data: string): void;
 }
 
 function projectContent(snapshot: ProjectSnapshot) {
@@ -29,10 +35,13 @@ function hasSameProjectContent(data: string, snapshot: ProjectSnapshot) {
 
 export function createObsidianProjectStorage(
   file: ObsidianProjectFilePort,
-): ProjectStorage {
-  return createProjectStorage({
+): ObsidianProjectStorage {
+  let loadedContents = file.read().trim();
+
+  const storage = createProjectStorage({
     async load() {
       const data = file.read().trim();
+      loadedContents = data;
       if (!data) {
         return null;
       }
@@ -46,12 +55,37 @@ export function createObsidianProjectStorage(
       if (hasSameProjectContent(file.read(), snapshot)) {
         return;
       }
-      file.write(JSON.stringify(snapshot, null, 2));
-      file.requestSave();
+      if (loadedContents !== null && file.readPersisted) {
+        const persistedContents = (await file.readPersisted()).trim();
+        if (persistedContents !== loadedContents) {
+          throw new Error(
+            "检测到磁盘文件被另一个程序、同步服务或脚本修改。为避免覆盖外部修改，本次自动保存已停止；请检查文件的最新内容后再继续编辑。",
+          );
+        }
+      }
+      const nextContents = JSON.stringify(snapshot, null, 2);
+      file.write(nextContents);
+      if (file.persist) {
+        await file.persist();
+      } else {
+        file.requestSave();
+      }
+      loadedContents = nextContents;
     },
     async clear() {
       file.write("");
-      file.requestSave();
+      if (file.persist) {
+        await file.persist();
+      } else {
+        file.requestSave();
+      }
+      loadedContents = "";
     },
   });
+  return {
+    ...storage,
+    acceptExternalData(data) {
+      loadedContents = data.trim();
+    },
+  };
 }

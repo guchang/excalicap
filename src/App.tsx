@@ -1,10 +1,12 @@
 import {
+  CaptureUpdateAction,
   Excalidraw,
   MainMenu,
   convertToExcalidrawElements,
   exportToCanvas,
   getDataURL,
   loadFromBlob,
+  newElementWith,
   serializeAsJSON,
   useHandleLibrary,
 } from "@excalidraw/excalidraw";
@@ -15,8 +17,10 @@ import type {
   ExcalidrawImperativeAPI,
   LibraryItems,
   NormalizedZoomValue,
+  PointerDownState,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type { ClipboardData } from "@excalidraw/excalidraw/clipboard";
 import {
   useCallback,
   useEffect,
@@ -24,6 +28,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { EXCALICAP_AI_DRAWING_PROMPT } from "./ai/excalicap-ai-prompt";
+import { Icon } from "./components/icons";
 import { ProductTopbar, type ProductRecordingState } from "./components/ProductTopbar";
 import { RecordingPreparation } from "./components/RecordingPreparation";
 import {
@@ -60,6 +66,7 @@ import {
 import {
   loadProductSettings,
   saveProductSettings,
+  takeLegacyTeleprompterText,
 } from "./product/settings-storage";
 import type { ProductSettings } from "./product/types";
 import type { CameraSettings } from "./product/types";
@@ -111,6 +118,10 @@ import {
   createStoredZip,
 } from "./recording/recording-artifacts";
 import { RecordingClock, formatRecordingTime } from "./recording/recording-clock";
+import {
+  calculateRecordingViewportState,
+  measureRecordingViewport,
+} from "./recording/recording-viewport";
 import type { RecorderCapability } from "./recording/types";
 import { createHighResolutionFileImporter } from "./rendering/high-resolution-file-import";
 import {
@@ -130,9 +141,16 @@ import {
 import {
   createSlide,
   deleteSlide,
+  duplicateSlide,
+  getSlideAtPoint,
   getSlides,
+  isPointOnSlide,
   normalizeSlideFrames,
+  pasteSlides,
+  repairInvalidSlideChildren,
   reorderSlides,
+  resizeSlideFrames,
+  wouldNudgeElementsOutsideOwningSlides,
   type SlideSceneElement,
 } from "./slides/slide-service";
 
@@ -159,18 +177,38 @@ interface PreparationState {
 
 type SlideMutationViewport = "fit" | "comfortable" | "preserve";
 
+const AI_DRAWING_PROMPT_COPIED_NOTICE =
+  "AI 绘图提示词已复制，可直接粘贴给 AI";
+const NOTICE_DURATION_MS = 5_000;
+const PROGRAMMATIC_SCENE_SETTLE_MS = 250;
+const SLIDE_ONLY_PLACEMENT_NOTICE = "元素只能放在 Slide 上";
+const SLIDE_FRAME_RENDERING = {
+  enabled: true,
+  clip: true,
+  name: true,
+  outline: true,
+} as const;
+
 const EDITING_SLIDE_VIEWPORT_FACTOR = 0.7;
-const RECORDING_SLIDE_VIEWPORT_FACTOR = 0.9;
 const SLIDE_TRANSITION_DURATION_MS = 500;
+
+function isWritablePasteTarget(target: Element | null): boolean {
+  return Boolean(
+    target &&
+      (target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)),
+  );
+}
 
 function focusSlide(
   api: ExcalidrawImperativeAPI,
+  root: HTMLElement | null,
   frame: OrderedExcalidrawElement,
   viewportFactor: number,
 ) {
-  const container = document.querySelector<HTMLElement>(
-    ".excalidraw-container",
-  );
+  const container = root?.querySelector<HTMLElement>(".excalidraw-container");
   if (container) {
     const bounds = container.getBoundingClientRect();
     if (
@@ -209,6 +247,30 @@ function focusSlide(
       });
     }
   }, 30);
+}
+
+function focusSlideForRecording(
+  api: ExcalidrawImperativeAPI,
+  root: HTMLElement,
+  frame: OrderedExcalidrawElement,
+) {
+  const viewport = measureRecordingViewport(root);
+  if (!viewport) {
+    return;
+  }
+  const state = calculateRecordingViewportState(
+    frame,
+    viewport.container,
+    viewport.offsets,
+    api.getAppState(),
+  );
+  api.updateScene({
+    appState: {
+      zoom: { value: state.zoom as NormalizedZoomValue },
+      scrollX: state.scrollX,
+      scrollY: state.scrollY,
+    },
+  });
 }
 
 const initialElements = convertToExcalidrawElements(
@@ -351,6 +413,47 @@ function excalidrawElements(
   return elements as unknown as readonly OrderedExcalidrawElement[];
 }
 
+function versionChangedElements(
+  currentElements: readonly OrderedExcalidrawElement[],
+  nextElements: readonly SlideSceneElement[],
+): readonly SlideSceneElement[] {
+  const currentById = new Map(
+    currentElements.map((element) => [element.id, element]),
+  );
+  return nextElements.map((element) => {
+    const current = currentById.get(element.id);
+    if (!current || current === element) {
+      return element;
+    }
+    const {
+      id: _id,
+      version: _version,
+      versionNonce: _versionNonce,
+      updated: _updated,
+      ...updates
+    } = element;
+    return newElementWith(
+      current,
+      updates as Parameters<typeof newElementWith>[1],
+    ) as unknown as SlideSceneElement;
+  });
+}
+
+function preparePersistedElements(
+  elements: readonly unknown[],
+): readonly OrderedExcalidrawElement[] {
+  return elements.map((element) => {
+    if (!element || typeof element !== "object") {
+      return element;
+    }
+    const { index: _persistedIndex, ...elementWithoutIndex } = element as Record<
+      string,
+      unknown
+    >;
+    return elementWithoutIndex;
+  }) as unknown as readonly OrderedExcalidrawElement[];
+}
+
 function hydrateNewFrames(
   elements: readonly SlideSceneElement[],
 ): readonly SlideSceneElement[] {
@@ -414,6 +517,7 @@ function downloadBlob(blob: Blob, fileName: string) {
 
 export interface AppProps {
   readonly projectStorage?: ProjectStorage;
+  readonly initialProject?: ProjectSnapshot | null;
   readonly projectFileName?: string | null;
   readonly libraryAdapter?: PermanentLibraryAdapter;
   readonly showProjectFileActions?: boolean;
@@ -424,26 +528,47 @@ export interface AppProps {
 
 export interface ProjectSaveHandle {
   flush(): Promise<void>;
+  load(snapshot: ProjectSnapshot | null): Promise<void>;
 }
 
 export default function App({
   projectStorage,
+  initialProject,
   projectFileName = null,
   libraryAdapter,
   showProjectFileActions = true,
   onProjectSaveHandleChange,
 }: AppProps = {}) {
-  const [settings, setSettings] = useState<ProductSettings>(() =>
-    typeof localStorage === "undefined" ||
-    typeof localStorage.getItem !== "function"
-      ? DEFAULT_SETTINGS
-      : loadProductSettings(localStorage),
-  );
+  const startingElements = initialProject
+    ? excalidrawElements(
+        repairInvalidSlideChildren(
+          sceneElements(preparePersistedElements(initialProject.elements)),
+        ),
+      )
+    : initialElements;
+  const [settings, setSettings] = useState<ProductSettings>(() => {
+    const preferences =
+      typeof localStorage === "undefined" ||
+      typeof localStorage.getItem !== "function"
+        ? DEFAULT_SETTINGS
+        : loadProductSettings(localStorage);
+    return {
+      ...preferences,
+      teleprompter: {
+        ...preferences.teleprompter,
+        text:
+          initialProject?.teleprompterText ??
+          (initialProject !== undefined
+            ? takeLegacyTeleprompterText(localStorage)
+            : ""),
+      },
+    };
+  });
   const [slides, setSlides] = useState(() =>
-    getSlides(sceneElements(initialElements)),
+    getSlides(sceneElements(startingElements)),
   );
   const [currentSlideId, setCurrentSlideId] = useState<string | null>(
-    slides[0]?.id ?? null,
+    initialProject?.currentSlideId ?? slides[0]?.id ?? null,
   );
   const [saveStatus, setSaveStatus] = useState<AutosaveStatus>("saved");
   const [recordingState, setRecordingStateValue] =
@@ -489,6 +614,7 @@ export default function App({
   const compositorRef = useRef<Compositor | null>(null);
   const whiteboardCompositorRef = useRef<Compositor | null>(null);
   const currentFrameRef = useRef<ActiveFrameBounds | null>(null);
+  const lastEditorPointerRef = useRef<{ x: number; y: number } | null>(null);
   const recordingSessionRef = useRef<DualRecordingSession | null>(null);
   const retainedRecordingSessionRef = useRef<DualRecordingSession | null>(null);
   const preparingRef = useRef(false);
@@ -498,6 +624,7 @@ export default function App({
   const acquiredMediaRef = useRef<AcquiredMedia | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const currentSlideIdRef = useRef(currentSlideId);
+  const teleprompterTextRef = useRef(settings.teleprompter.text);
   const latestRenderRef = useRef(createLatestRenderCoordinator<HTMLCanvasElement>());
   const latestSceneRef = useRef<PendingScene | null>(null);
   const projectReadyRef = useRef(false);
@@ -509,9 +636,15 @@ export default function App({
   const projectFileNameRef = useRef<string | null>(projectFileName);
   const projectFileDirtyRef = useRef(true);
   const programmaticSceneChangeRef = useRef(false);
+  const programmaticSceneTimerRef = useRef<number | null>(null);
+  const loadProjectSnapshotRef = useRef<
+    (snapshot: ProjectSnapshot | null) => Promise<void>
+  >(async () => undefined);
   const autosaveRef = useRef<AutosaveController | null>(null);
   const clockRef = useRef(new RecordingClock());
   const profile = useMemo(() => resolveOutputProfile(settings), [settings]);
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
   const focusActive =
     recordingState === "preparing" ||
     recordingState === "starting" ||
@@ -523,6 +656,17 @@ export default function App({
     currentSlideIdRef.current = slideId;
     setCurrentSlideId(slideId);
   }, []);
+
+  const selectCanvasSlide = useCallback(
+    (slideId: string) => {
+      selectSlide(slideId);
+      apiRef.current?.updateScene({
+        appState: { selectedElementIds: { [slideId]: true } },
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+    },
+    [selectSlide],
+  );
 
   if (!projectStorageRef.current) {
     projectStorageRef.current = projectStorage ?? createRuntimeProjectStorage();
@@ -544,6 +688,8 @@ export default function App({
     autosaveRef.current = createAutosaveController({
       delayMs: 800,
       save: (snapshot) => projectStorageRef.current!.save(snapshot),
+      onError: (error) =>
+        setNotice(error instanceof Error ? error.message : "无法保存项目"),
       onStatusChange: setSaveStatus,
     });
   }
@@ -551,6 +697,8 @@ export default function App({
   useEffect(() => {
     const handle = {
       flush: () => autosaveRef.current?.flush() ?? Promise.resolve(),
+      load: (snapshot: ProjectSnapshot | null) =>
+        loadProjectSnapshotRef.current(snapshot),
     };
     onProjectSaveHandleChange?.(handle);
     return () => onProjectSaveHandleChange?.(null);
@@ -567,17 +715,36 @@ export default function App({
   }, []);
 
   const initialData = useMemo(
-    () => ({
-      elements: initialElements,
-      appState: {
-        viewBackgroundColor: "#ffffff",
-        currentItemFontSize: defaultPresentationFontSize(
-          Math.min(profile.width, profile.height),
-        ),
-      },
-      scrollToContent: true,
-    }),
-    [profile.height, profile.width],
+    () => {
+      const currentItemFontSize = defaultPresentationFontSize(
+        Math.min(profile.width, profile.height),
+      );
+      return (
+        initialProject !== undefined
+          ? {
+              elements: startingElements,
+              appState: {
+                viewBackgroundColor: "#ffffff",
+                ...(initialProject?.appState as Partial<AppState> | undefined),
+                currentItemFontSize,
+                frameRendering: SLIDE_FRAME_RENDERING,
+                isLoading: false,
+              },
+              files: (initialProject?.files ?? {}) as BinaryFiles,
+              scrollToContent: true,
+            }
+          : {
+              elements: initialElements,
+              appState: {
+                viewBackgroundColor: "#ffffff",
+                currentItemFontSize,
+                frameRendering: SLIDE_FRAME_RENDERING,
+              },
+              scrollToContent: true,
+            }
+      );
+    },
+    [initialProject, profile.height, profile.width, startingElements],
   );
 
   useEffect(() => {
@@ -602,6 +769,7 @@ export default function App({
       updatedAt: Date.now(),
       projectTitle: "我的 Excalicap 视频",
       currentSlideId: currentSlideIdRef.current,
+      teleprompterText: teleprompterTextRef.current,
       elements,
       appState: {
         viewBackgroundColor: appState.viewBackgroundColor,
@@ -612,30 +780,197 @@ export default function App({
     [],
   );
 
+  const copyAiDrawingPrompt = useCallback(async () => {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(EXCALICAP_AI_DRAWING_PROMPT);
+      setNotice(AI_DRAWING_PROMPT_COPIED_NOTICE);
+    } catch {
+      setNotice("无法复制 AI 绘图提示词，请检查剪贴板权限后重试");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!notice) {
+      return;
+    }
+    const currentNotice = notice;
+    const timer = window.setTimeout(
+      () =>
+        setNotice((current) =>
+          current === currentNotice ? null : current,
+        ),
+      NOTICE_DURATION_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    const blockPasteOutsideSlides = (event: ClipboardEvent) => {
+      const editor = productShellRef.current?.querySelector(
+        ".excalidraw-container",
+      );
+      const activeElement = document.activeElement;
+      if (
+        !editor ||
+        !activeElement ||
+        !editor.contains(activeElement) ||
+        isWritablePasteTarget(activeElement)
+      ) {
+        return;
+      }
+      const pointer = lastEditorPointerRef.current;
+      const elements = apiRef.current?.getSceneElements() ?? [];
+      const clipboardTypes = Array.from(event.clipboardData?.types ?? []);
+      const containsImage =
+        Boolean(event.clipboardData?.files?.length) ||
+        clipboardTypes.some((type) => type.startsWith("image/"));
+      if (!containsImage) {
+        return;
+      }
+      if (
+        pointer &&
+        isPointOnSlide(sceneElements(elements), pointer)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setNotice(SLIDE_ONLY_PLACEMENT_NOTICE);
+    };
+    window.addEventListener("paste", blockPasteOutsideSlides, true);
+    return () =>
+      window.removeEventListener("paste", blockPasteOutsideSlides, true);
+  }, []);
+
+  useEffect(() => {
+    const blockArrowNudgeOutsideSlides = (event: KeyboardEvent) => {
+      const recordingState = recordingStateRef.current;
+      if (
+        recordingState === "preparing" ||
+        recordingState === "recording" ||
+        recordingState === "paused"
+      ) {
+        return;
+      }
+      if (
+        event.key !== "ArrowLeft" &&
+        event.key !== "ArrowRight" &&
+        event.key !== "ArrowUp" &&
+        event.key !== "ArrowDown"
+      ) {
+        return;
+      }
+      const editor = productShellRef.current?.querySelector(
+        ".excalidraw-container",
+      );
+      if (
+        !editor ||
+        !(event.target instanceof Element) ||
+        !editor.contains(event.target) ||
+        isWritablePasteTarget(event.target)
+      ) {
+        return;
+      }
+      const api = apiRef.current;
+      if (!api) {
+        return;
+      }
+      const appState = api.getAppState();
+      if (
+        appState.editingTextElement ||
+        appState.editingLinearElement ||
+        appState.newElement
+      ) {
+        return;
+      }
+      const effectiveGridSize = appState.gridModeEnabled
+        ? appState.gridSize
+        : null;
+      const step =
+        (effectiveGridSize && (event.shiftKey ? 1 : effectiveGridSize)) ||
+        (event.shiftKey ? 5 : 1);
+      const offset = {
+        x:
+          event.key === "ArrowLeft"
+            ? -step
+            : event.key === "ArrowRight"
+              ? step
+              : 0,
+        y:
+          event.key === "ArrowUp"
+            ? -step
+            : event.key === "ArrowDown"
+              ? step
+              : 0,
+      };
+      if (
+        !wouldNudgeElementsOutsideOwningSlides(
+          sceneElements(api.getSceneElements()),
+          appState.selectedElementIds ?? {},
+          offset,
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setNotice(SLIDE_ONLY_PLACEMENT_NOTICE);
+    };
+    window.addEventListener("keydown", blockArrowNudgeOutsideSlides, true);
+    return () =>
+      window.removeEventListener(
+        "keydown",
+        blockArrowNudgeOutsideSlides,
+        true,
+      );
+  }, []);
+
   const replaceProjectScene = useCallback(
     async (
       elements: readonly SlideSceneElement[],
       appState: Partial<AppState>,
       files: BinaryFiles,
       nextSlideId: string | null,
+      options: {
+        readonly persist?: boolean;
+        readonly preserveViewport?: boolean;
+      } = {},
     ) => {
       const api = apiRef.current;
       if (!api) {
         throw new Error("Excalidraw API 尚未初始化");
       }
-      const normalized = normalizeSlideFrames(elements, profile);
+      const { persist = true, preserveViewport = false } = options;
+      const currentAppState = api.getAppState();
+      const normalized = normalizeSlideFrames(
+        repairInvalidSlideChildren(elements),
+      );
       const normalizedElements = excalidrawElements(
         hydrateNewFrames(normalized),
       );
       programmaticSceneChangeRef.current = true;
+      if (programmaticSceneTimerRef.current) {
+        window.clearTimeout(programmaticSceneTimerRef.current);
+      }
       api.resetScene();
       api.updateScene({
         elements: normalizedElements,
         appState: {
-          ...api.getAppState(),
+          ...currentAppState,
           ...appState,
+          ...(preserveViewport
+            ? {
+                scrollX: currentAppState.scrollX,
+                scrollY: currentAppState.scrollY,
+                zoom: currentAppState.zoom,
+              }
+            : {}),
           isLoading: false,
         },
+        captureUpdate: CaptureUpdateAction.NEVER,
       });
       api.addFiles(Object.values(files) as BinaryFileData[]);
       const nextSlides = getSlides(sceneElements(normalizedElements));
@@ -650,20 +985,49 @@ export default function App({
         appState: api.getAppState(),
         files,
       };
-      await autosaveRef.current?.flush(
-        snapshotFrom(normalizedElements, api.getAppState(), files),
-      );
-      window.setTimeout(() => {
+      if (persist) {
+        await autosaveRef.current?.flush(
+          snapshotFrom(normalizedElements, api.getAppState(), files),
+        );
+      }
+      programmaticSceneTimerRef.current = window.setTimeout(() => {
         programmaticSceneChangeRef.current = false;
-      }, 0);
-      requestAnimationFrame(() => {
-        api.scrollToContent(api.getSceneElements(), {
-          fitToContent: true,
+        programmaticSceneTimerRef.current = null;
+      }, PROGRAMMATIC_SCENE_SETTLE_MS);
+      if (!preserveViewport) {
+        requestAnimationFrame(() => {
+          api.scrollToContent(api.getSceneElements(), {
+            fitToContent: true,
+          });
         });
-      });
+      }
     },
-    [profile, selectSlide, snapshotFrom],
+    [selectSlide, snapshotFrom],
   );
+
+  loadProjectSnapshotRef.current = async (snapshot) => {
+    autosaveRef.current?.discardPending();
+    setSaveStatus("saved");
+    setNotice(null);
+    const teleprompterText = snapshot?.teleprompterText ?? "";
+    teleprompterTextRef.current = teleprompterText;
+    setSettings((current) => ({
+      ...current,
+      teleprompter: { ...current.teleprompter, text: teleprompterText },
+    }));
+    await replaceProjectScene(
+      snapshot
+        ? sceneElements(preparePersistedElements(snapshot.elements))
+        : sceneElements(initialElements),
+      (snapshot?.appState as Partial<AppState> | undefined) ?? {
+        viewBackgroundColor: "#ffffff",
+      },
+      (snapshot?.files ?? {}) as BinaryFiles,
+      snapshot?.currentSlideId ?? null,
+      { persist: false, preserveViewport: true },
+    );
+    projectFileDirtyRef.current = false;
+  };
 
   const newProject = useCallback(async () => {
     if (
@@ -768,14 +1132,20 @@ export default function App({
 
   const configureApi = useCallback((api: ExcalidrawImperativeAPI) => {
     apiRef.current = api;
+    api.updateFrameRendering(SLIDE_FRAME_RENDERING);
     setLibraryApi((current) => (current === api ? current : api));
     setSlideViewport(api.getAppState() as unknown as ViewportState);
     const currentElements = api.getSceneElements();
     const currentScene = sceneElements(currentElements);
-    const normalizedElements = normalizeSlideFrames(currentScene, profile);
+    const normalizedElements = normalizeSlideFrames(currentScene);
     if (normalizedElements !== currentScene) {
+      const versionedElements = versionChangedElements(
+        currentElements,
+        normalizedElements,
+      );
       api.updateScene({
-        elements: excalidrawElements(normalizedElements),
+        elements: excalidrawElements(versionedElements),
+        captureUpdate: CaptureUpdateAction.NEVER,
       });
     }
     const currentSlides = getSlides(normalizedElements);
@@ -786,6 +1156,29 @@ export default function App({
     if (projectReadyRef.current) {
       return;
     }
+    if (initialProject !== undefined) {
+      projectReadyRef.current = true;
+      if (
+        initialProject?.teleprompterText === undefined &&
+        teleprompterTextRef.current
+      ) {
+        autosaveRef.current?.queue(
+          snapshotFrom(
+            api.getSceneElements(),
+            api.getAppState(),
+            api.getFiles(),
+          ),
+        );
+      }
+      requestAnimationFrame(() => {
+        if (mountedRef.current) {
+          api.scrollToContent(api.getSceneElements(), {
+            fitToContent: true,
+          });
+        }
+      });
+      return;
+    }
     void projectStorageRef.current!
       .load()
       .then((saved) => {
@@ -793,17 +1186,25 @@ export default function App({
           return;
         }
         if (saved) {
+          const teleprompterText = saved.teleprompterText ?? "";
+          teleprompterTextRef.current = teleprompterText;
+          setSettings((current) => ({
+            ...current,
+            teleprompter: { ...current.teleprompter, text: teleprompterText },
+          }));
           const restoredElements = normalizeSlideFrames(
             saved.elements as unknown as readonly SlideSceneElement[],
-            profile,
           );
+          api.resetScene();
           api.updateScene({
             elements: excalidrawElements(restoredElements),
             appState: {
               ...api.getAppState(),
               ...saved.appState,
+              frameRendering: SLIDE_FRAME_RENDERING,
               isLoading: false,
             },
+            captureUpdate: CaptureUpdateAction.NEVER,
           });
           api.addFiles(Object.values(saved.files) as BinaryFileData[]);
           const restoredSlides = getSlides(restoredElements);
@@ -831,7 +1232,7 @@ export default function App({
           error instanceof Error ? error.message : "无法恢复本地项目",
         );
       });
-  }, [profile, selectSlide]);
+  }, [initialProject, selectSlide, snapshotFrom]);
 
   const generateIdForFile = useCallback(async (file: File) => {
     const api = apiRef.current;
@@ -946,6 +1347,26 @@ export default function App({
     );
   }, []);
 
+  const restoreEditingFocus = useCallback(() => {
+    const api = apiRef.current;
+    const frame = api
+      ?.getSceneElements()
+      .find(
+        (element) =>
+          element.id === currentSlideIdRef.current &&
+          element.type === "frame" &&
+          !element.isDeleted,
+      );
+    if (api && frame) {
+      focusSlide(
+        api,
+        productShellRef.current,
+        frame,
+        EDITING_SLIDE_VIEWPORT_FACTOR,
+      );
+    }
+  }, []);
+
   const renderCurrentFrame = useCallback(
     async (frameId = currentSlideIdRef.current) => {
       const api = apiRef.current;
@@ -1025,17 +1446,20 @@ export default function App({
             !element.isDeleted,
       );
       if (selectedFrame) {
-        focusSlide(
-          api,
-          selectedFrame,
-          RECORDING_SLIDE_VIEWPORT_FACTOR,
-        );
+        const root = productShellRef.current;
+        if (root) {
+          focusSlideForRecording(api, root, selectedFrame);
+        }
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => {
             updateFocusRect(selectedFrame.id);
             resolve();
           });
         });
+        window.setTimeout(
+          () => updateFocusRect(selectedFrame.id),
+          SLIDE_TRANSITION_DURATION_MS,
+        );
       }
       const frame = await renderCurrentFrame();
       const elements = api.getSceneElements();
@@ -1198,19 +1622,8 @@ export default function App({
     setPreparation(null);
     setRecordingState("idle");
     stopDevices();
-    const api = apiRef.current;
-    const frame = api
-      ?.getSceneElements()
-      .find(
-        (element) =>
-          element.id === currentSlideIdRef.current &&
-          element.type === "frame" &&
-          !element.isDeleted,
-      );
-    if (api && frame) {
-      focusSlide(api, frame, EDITING_SLIDE_VIEWPORT_FACTOR);
-    }
-  }, [stopDevices]);
+    restoreEditingFocus();
+  }, [restoreEditingFocus, stopDevices]);
 
   const startRecording = useCallback(async () => {
     if (startingRef.current || recordingSessionRef.current) {
@@ -1330,6 +1743,7 @@ export default function App({
       stopDevices();
       setPreparation(null);
       setRecordingState("failed");
+      restoreEditingFocus();
       setRecordingResultOpen(true);
       setRecordingError(
         error instanceof Error ? error.message : "无法开始录制",
@@ -1340,6 +1754,7 @@ export default function App({
   }, [
     preparation,
     profile.fps,
+    restoreEditingFocus,
     startCompositionLoop,
     stopCaptureStream,
     stopDevices,
@@ -1444,6 +1859,7 @@ export default function App({
       setRecordingError(null);
       setRecordingResultOpen(true);
       setRecordingState("completed");
+      restoreEditingFocus();
       const scene = latestSceneRef.current;
       if (scene) {
         await autosaveRef.current?.flush(
@@ -1457,6 +1873,7 @@ export default function App({
       stopCaptureStream();
       stopDevices();
       setRecordingState("failed");
+      restoreEditingFocus();
       setRecordingResultOpen(true);
       setRecordingError(
         error instanceof Error ? error.message : "停止录制失败",
@@ -1464,7 +1881,13 @@ export default function App({
     } finally {
       stoppingRef.current = false;
     }
-  }, [snapshotFrom, stopCaptureStream, stopCompositionLoop, stopDevices]);
+  }, [
+    restoreEditingFocus,
+    snapshotFrom,
+    stopCaptureStream,
+    stopCompositionLoop,
+    stopDevices,
+  ]);
 
   const navigateToSlide = useCallback(
     (slideId: string) => {
@@ -1477,14 +1900,14 @@ export default function App({
       compositorRef.current?.clearLaser();
       whiteboardCompositorRef.current?.clearLaser();
       if (api && frame) {
-        focusSlide(
-          api,
-          frame,
-          focusActive
-            ? RECORDING_SLIDE_VIEWPORT_FACTOR
-            : EDITING_SLIDE_VIEWPORT_FACTOR,
-        );
-        requestAnimationFrame(() => updateFocusRect(slideId));
+        const root = productShellRef.current;
+        if (focusActive && root) {
+          focusSlideForRecording(api, root, frame);
+          requestAnimationFrame(() => updateFocusRect(slideId));
+        } else {
+          focusSlide(api, root, frame, EDITING_SLIDE_VIEWPORT_FACTOR);
+          requestAnimationFrame(() => updateFocusRect(slideId));
+        }
       }
       if (compositorRef.current) {
         void renderCurrentFrame(slideId);
@@ -1492,6 +1915,57 @@ export default function App({
     },
     [focusActive, renderCurrentFrame, selectSlide, updateFocusRect],
   );
+
+  useEffect(() => {
+    if (!focusActive || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const root = productShellRef.current;
+    const api = apiRef.current;
+    const container = root?.querySelector<HTMLElement>(
+      ".excalidraw-container",
+    );
+    if (!root || !api || !container) {
+      return;
+    }
+    let animationFrame: number | null = null;
+    const refocus = () => {
+      if (animationFrame !== null) {
+        cancelAnimationFrame(animationFrame);
+      }
+      animationFrame = requestAnimationFrame(() => {
+        animationFrame = null;
+        const frameId = currentSlideIdRef.current;
+        const frame = api
+          .getSceneElements()
+          .find(
+            (element) =>
+              element.id === frameId &&
+              element.type === "frame" &&
+              !element.isDeleted,
+          );
+        if (!frame) {
+          return;
+        }
+        focusSlideForRecording(api, root, frame);
+        requestAnimationFrame(() => updateFocusRect(frame.id));
+      });
+    };
+    const observer = new ResizeObserver(refocus);
+    observer.observe(container);
+    const rightStack = root.querySelector<HTMLElement>(".product-right-stack");
+    if (rightStack) {
+      observer.observe(rightStack);
+    }
+    window.addEventListener("resize", refocus);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", refocus);
+      if (animationFrame !== null) {
+        cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [focusActive, updateFocusRect]);
 
   const applySlideMutation = useCallback(
     (mutation: {
@@ -1503,17 +1977,25 @@ export default function App({
         return;
       }
       const hydratedElements = hydrateNewFrames(mutation.elements);
+      const versionedElements = versionChangedElements(
+        api.getSceneElements(),
+        hydratedElements,
+      );
       compositorRef.current?.clearLaser();
       whiteboardCompositorRef.current?.clearLaser();
-      api.updateScene({ elements: excalidrawElements(hydratedElements) });
-      setSlides(getSlides(hydratedElements));
+      api.updateScene({
+        elements: excalidrawElements(versionedElements),
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
+      setSlides(getSlides(versionedElements));
       selectSlide(mutation.currentSlideId);
-      const frame = hydratedElements.find(
+      const frame = versionedElements.find(
         (element) => element.id === mutation.currentSlideId,
       );
       if (frame && viewport === "comfortable") {
         focusSlide(
           api,
+          productShellRef.current,
           frame as unknown as OrderedExcalidrawElement,
           EDITING_SLIDE_VIEWPORT_FACTOR,
         );
@@ -1543,6 +2025,48 @@ export default function App({
     );
   }, [applySlideMutation, currentSlideId, profile.height, profile.width]);
 
+  const handlePaste = useCallback(
+    (data: ClipboardData) => {
+      const clipboardElements = sceneElements(
+        (data.elements ?? []) as readonly OrderedExcalidrawElement[],
+      );
+      if (!clipboardElements.some((element) => element.type === "frame")) {
+        const pointer = lastEditorPointerRef.current;
+        const api = apiRef.current;
+        if (
+          !pointer ||
+          !api ||
+          !isPointOnSlide(sceneElements(api.getSceneElements()), pointer)
+        ) {
+          setNotice(SLIDE_ONLY_PLACEMENT_NOTICE);
+          return false;
+        }
+        return true;
+      }
+      const api = apiRef.current;
+      if (!api) {
+        return false;
+      }
+      try {
+        applySlideMutation(
+          pasteSlides(
+            sceneElements(api.getSceneElements()),
+            clipboardElements,
+            currentSlideIdRef.current,
+            () => crypto.randomUUID(),
+          ),
+          "preserve",
+        );
+        api.addFiles(Object.values(data.files ?? {}) as BinaryFileData[]);
+        latestRenderRef.current.invalidate();
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "无法粘贴 Slide");
+      }
+      return false;
+    },
+    [applySlideMutation],
+  );
+
   const handleDeleteSlide = useCallback(
     (slideId: string) => {
       const api = apiRef.current;
@@ -1566,6 +2090,29 @@ export default function App({
         latestRenderRef.current.invalidate();
       } catch (error) {
         setNotice(error instanceof Error ? error.message : "无法删除 Slide");
+      }
+    },
+    [applySlideMutation],
+  );
+
+  const handleDuplicateSlide = useCallback(
+    (slideId: string) => {
+      const api = apiRef.current;
+      if (!api) {
+        return;
+      }
+      try {
+        applySlideMutation(
+          duplicateSlide(
+            sceneElements(api.getSceneElements()),
+            slideId,
+            () => crypto.randomUUID(),
+          ),
+          "preserve",
+        );
+        latestRenderRef.current.invalidate();
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "无法复制 Slide");
       }
     },
     [applySlideMutation],
@@ -1613,18 +2160,32 @@ export default function App({
     [profile, slides],
   );
 
-  const handleReorder = useCallback((orderedIds: string[]) => {
-    const api = apiRef.current;
-    if (!api) {
-      return;
-    }
-    const arranged = reorderSlides(
-      sceneElements(api.getSceneElements()),
-      orderedIds,
-    );
-    api.updateScene({ elements: excalidrawElements(arranged) });
-    setSlides(getSlides(arranged));
-  }, []);
+  const handleReorder = useCallback(
+    (orderedIds: string[]) => {
+      const api = apiRef.current;
+      if (!api) {
+        return;
+      }
+      const arranged = reorderSlides(
+        sceneElements(api.getSceneElements()),
+        orderedIds,
+      );
+      const arrangedSlides = getSlides(arranged);
+      const selectedSlideId = currentSlideIdRef.current;
+      applySlideMutation(
+        {
+          elements: arranged,
+          currentSlideId:
+            selectedSlideId &&
+            arrangedSlides.some((slide) => slide.id === selectedSlideId)
+              ? selectedSlideId
+              : arrangedSlides[0].id,
+        },
+        "preserve",
+      );
+    },
+    [applySlideMutation],
+  );
 
   const createSlideDragPreview = useCallback(
     async (slideId: string) => {
@@ -1690,30 +2251,38 @@ export default function App({
     ) => {
       setSlideViewport(appState as unknown as ViewportState);
       const scene = sceneElements(elements);
-      const lockedScene = normalizeSlideFrames(scene, profile);
-      const lockedElements = excalidrawElements(lockedScene);
-      if (lockedScene !== scene) {
-        apiRef.current?.updateScene({ elements: lockedElements });
+      const normalizedScene = normalizeSlideFrames(scene);
+      const committedScene =
+        normalizedScene === scene
+          ? normalizedScene
+          : versionChangedElements(elements, normalizedScene);
+      const normalizedElements = excalidrawElements(committedScene);
+      if (normalizedScene !== scene) {
+        apiRef.current?.updateScene({
+          elements: normalizedElements,
+          captureUpdate: CaptureUpdateAction.NEVER,
+        });
       }
-      latestSceneRef.current = { elements: lockedElements, appState, files };
-      const nextSlides = getSlides(lockedScene);
+      latestSceneRef.current = { elements: normalizedElements, appState, files };
+      const nextSlides = getSlides(committedScene);
       setSlides(nextSlides);
       const selectedSlideId = currentSlideIdRef.current;
       if (!nextSlides.some((slide) => slide.id === selectedSlideId)) {
         selectSlide(nextSlides[0]?.id ?? null);
       }
-      if (projectReadyRef.current) {
-        if (!programmaticSceneChangeRef.current) {
-          projectFileDirtyRef.current = true;
-        }
+      if (
+        projectReadyRef.current &&
+        !programmaticSceneChangeRef.current
+      ) {
+        projectFileDirtyRef.current = true;
         autosaveRef.current?.queue(
-          snapshotFrom(lockedElements, appState, files),
+          snapshotFrom(normalizedElements, appState, files),
         );
       }
       if (!currentFrameRef.current || !compositorRef.current) {
         return;
       }
-      const frame = lockedElements.find(
+      const frame = normalizedElements.find(
         (element) =>
           element.id === currentSlideIdRef.current &&
           element.type === "frame" &&
@@ -1730,7 +2299,7 @@ export default function App({
           () =>
             renderFrameToCanvas(
               {
-                elements: lockedElements,
+                elements: normalizedElements,
                 appState: {
                   ...appState,
                   exportBackground: false,
@@ -1763,7 +2332,7 @@ export default function App({
           );
         });
     },
-    [focusActive, profile, selectSlide, snapshotFrom],
+    [focusActive, selectSlide, snapshotFrom],
   );
 
   const handlePointerUpdate = useCallback(
@@ -1774,6 +2343,7 @@ export default function App({
       pointer: { x: number; y: number; tool: "pointer" | "laser" };
       button: "down" | "up";
     }) => {
+      lastEditorPointerRef.current = { x: pointer.x, y: pointer.y };
       const frame = currentFrameRef.current;
       if (!frame || !compositorRef.current) {
         return;
@@ -1813,6 +2383,70 @@ export default function App({
     [settings.cursor],
   );
 
+  const handleEditorPointerUp = useCallback(
+    (_activeTool: AppState["activeTool"], pointerDownState: PointerDownState) => {
+      if (!pointerDownState.drag.hasOccurred) {
+        return;
+      }
+      const originalElements = pointerDownState.originalElements;
+      queueMicrotask(() => {
+        const api = apiRef.current;
+        if (!mountedRef.current || !api) {
+          return;
+        }
+        const currentElements = api.getSceneElements();
+        const currentScene = sceneElements(currentElements);
+        const targetSlide = lastEditorPointerRef.current
+          ? getSlideAtPoint(currentScene, lastEditorPointerRef.current)
+          : null;
+        const selectedElementIds = api.getAppState().selectedElementIds ?? {};
+        let changed = false;
+        const nextElements = currentElements.map((element) => {
+          if (
+            element.type === "frame" ||
+            element.isDeleted ||
+            !selectedElementIds[element.id]
+          ) {
+            return element;
+          }
+          if (targetSlide) {
+            if (element.frameId === targetSlide.id) {
+              return element;
+            }
+            changed = true;
+            return { ...element, frameId: targetSlide.id };
+          }
+          const original = originalElements.get(element.id);
+          if (!original?.frameId) {
+            return element;
+          }
+          changed = true;
+          return {
+            ...element,
+            x: original.x,
+            y: original.y,
+            frameId: original.frameId,
+          };
+        });
+        if (!changed) {
+          return;
+        }
+        const versionedElements = versionChangedElements(
+          currentElements,
+          sceneElements(nextElements),
+        );
+        api.updateScene({
+          elements: excalidrawElements(versionedElements),
+          captureUpdate: CaptureUpdateAction.NEVER,
+        });
+        if (!targetSlide) {
+          setNotice(SLIDE_ONLY_PLACEMENT_NOTICE);
+        }
+      });
+    },
+    [],
+  );
+
   const openSettings = useCallback(() => {
     if (
       recordingStateRef.current !== "idle" &&
@@ -1850,12 +2484,28 @@ export default function App({
         return;
       }
       const nextProfile = resolveOutputProfile(nextSettings);
+      profileRef.current = nextProfile;
       const api = apiRef.current;
       if (api) {
-        const normalizedElements = normalizeSlideFrames(
-          sceneElements(api.getSceneElements()),
-          nextProfile,
+        const currentExcalidrawElements = api.getSceneElements();
+        const currentElements = sceneElements(currentExcalidrawElements);
+        const frameSizeChanged = currentElements.some(
+          (element) =>
+            element.type === "frame" &&
+            !element.isDeleted &&
+            (element.width !== nextProfile.width ||
+              element.height !== nextProfile.height),
         );
+        const resizedElements = frameSizeChanged
+          ? resizeSlideFrames(currentElements, nextProfile)
+          : normalizeSlideFrames(currentElements, nextProfile);
+        const normalizedElements = frameSizeChanged
+          ? versionChangedElements(currentExcalidrawElements, resizedElements)
+          : resizedElements;
+        programmaticSceneChangeRef.current = true;
+        if (programmaticSceneTimerRef.current) {
+          window.clearTimeout(programmaticSceneTimerRef.current);
+        }
         api.updateScene({
           elements: excalidrawElements(normalizedElements),
           appState: {
@@ -1863,19 +2513,42 @@ export default function App({
               Math.min(nextProfile.width, nextProfile.height),
             ),
           },
+          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
         });
         setSlides(getSlides(normalizedElements));
+        latestSceneRef.current = {
+          elements: excalidrawElements(normalizedElements),
+          appState: api.getAppState(),
+          files: api.getFiles(),
+        };
+        projectFileDirtyRef.current = true;
+        autosaveRef.current?.queue(
+          snapshotFrom(
+            excalidrawElements(normalizedElements),
+            api.getAppState(),
+            api.getFiles(),
+          ),
+        );
+        programmaticSceneTimerRef.current = window.setTimeout(() => {
+          programmaticSceneChangeRef.current = false;
+          programmaticSceneTimerRef.current = null;
+        }, PROGRAMMATIC_SCENE_SETTLE_MS);
       }
       setSettings(nextSettings);
       saveProductSettings(localStorage, nextSettings);
       setSettingsOpen(false);
+      requestAnimationFrame(() => {
+        productShellRef.current
+          ?.querySelector<HTMLElement>(".excalidraw-container")
+          ?.focus({ preventScroll: true });
+      });
       compositorRef.current?.dispose();
       compositorRef.current = null;
       whiteboardCompositorRef.current?.dispose();
       whiteboardCompositorRef.current = null;
       setNotice("设置已应用；现有 Slide 已统一为所选画幅");
     },
-    [],
+    [snapshotFrom],
   );
 
   const updateCameraSettings = useCallback(
@@ -1996,6 +2669,14 @@ export default function App({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      const recordingState = recordingStateRef.current;
+      if (
+        recordingState !== "preparing" &&
+        recordingState !== "recording" &&
+        recordingState !== "paused"
+      ) {
+        return;
+      }
       if (
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement ||
@@ -2006,6 +2687,8 @@ export default function App({
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
         return;
       }
+      event.preventDefault();
+      event.stopPropagation();
       const index = slides.findIndex((slide) => slide.id === currentSlideId);
       const nextIndex =
         event.key === "ArrowRight"
@@ -2016,8 +2699,8 @@ export default function App({
         navigateToSlide(target.id);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [currentSlideId, navigateToSlide, slides]);
 
   useEffect(
@@ -2025,6 +2708,10 @@ export default function App({
       mountedRef.current = true;
       return () => {
         mountedRef.current = false;
+        if (programmaticSceneTimerRef.current) {
+          window.clearTimeout(programmaticSceneTimerRef.current);
+          programmaticSceneTimerRef.current = null;
+        }
         autosaveRef.current?.dispose();
         void recordingSessionRef.current?.abort();
         void retainedRecordingSessionRef.current
@@ -2066,11 +2753,23 @@ export default function App({
             <MainMenu.Separator />
           </>
         )}
+        <MainMenu.Item
+          icon={<Icon name="copy" />}
+          onSelect={() => void copyAiDrawingPrompt()}
+        >
+          复制 AI 绘图提示词
+        </MainMenu.Item>
         <MainMenu.DefaultItems.SaveAsImage />
         <MainMenu.DefaultItems.Help />
       </MainMenu>
     ),
-    [newProject, openProject, saveProject, showProjectFileActions],
+    [
+      copyAiDrawingPrompt,
+      newProject,
+      openProject,
+      saveProject,
+      showProjectFileActions,
+    ],
   );
 
   const elapsedText = formatRecordingTime(
@@ -2136,7 +2835,9 @@ export default function App({
           name="Excalicap"
           onChange={handleSceneChange}
           onLibraryChange={handleLibraryChange}
+          onPaste={handlePaste}
           onPointerUpdate={handlePointerUpdate}
+          onPointerUp={handleEditorPointerUp}
           theme={settings.theme}
         >
           {projectMenu}
@@ -2144,6 +2845,7 @@ export default function App({
       </div>
 
       <CanvasSlideSorter
+        currentSlideId={currentSlideId}
         disabled={
           focusActive ||
           settingsOpen ||
@@ -2156,6 +2858,7 @@ export default function App({
         onAutoPan={autoPanSlides}
         onPreview={createSlideDragPreview}
         onReorder={handleReorder}
+        onSelect={selectCanvasSlide}
       />
 
       {focusActive && overlayRect && (
@@ -2199,6 +2902,7 @@ export default function App({
           theme={settings.theme}
           onAdd={addSlide}
           onDelete={handleDeleteSlide}
+          onDuplicate={handleDuplicateSlide}
           onExport={(slideId) => void handleExportSlide(slideId)}
           onNavigate={navigateToSlide}
           onReorder={handleReorder}
@@ -2217,9 +2921,23 @@ export default function App({
         open={teleprompterOpen}
         settings={settings.teleprompter}
         onChange={(teleprompter) => {
-          const next = { ...settings, teleprompter };
-          setSettings(next);
-          saveProductSettings(localStorage, next);
+          teleprompterTextRef.current = teleprompter.text;
+          setSettings((current) => {
+            const next = { ...current, teleprompter };
+            saveProductSettings(localStorage, next);
+            return next;
+          });
+          const api = apiRef.current;
+          if (api && projectReadyRef.current) {
+            projectFileDirtyRef.current = true;
+            autosaveRef.current?.queue(
+              snapshotFrom(
+                api.getSceneElements(),
+                api.getAppState(),
+                api.getFiles(),
+              ),
+            );
+          }
         }}
         onClose={() => setTeleprompterOpen(false)}
       />

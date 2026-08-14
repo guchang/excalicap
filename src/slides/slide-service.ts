@@ -34,6 +34,125 @@ function frameElements(elements: readonly SlideSceneElement[]) {
     .sort((left, right) => left.x - right.x);
 }
 
+function rotatedBounds(element: SlideSceneElement) {
+  const angle = typeof element.angle === "number" ? element.angle : 0;
+  const centerX = element.x + element.width / 2;
+  const centerY = element.y + element.height / 2;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const corners = [
+    [element.x, element.y],
+    [element.x + element.width, element.y],
+    [element.x + element.width, element.y + element.height],
+    [element.x, element.y + element.height],
+  ].map(([x, y]) => ({
+    x: centerX + (x - centerX) * cosine - (y - centerY) * sine,
+    y: centerY + (x - centerX) * sine + (y - centerY) * cosine,
+  }));
+  return {
+    left: Math.min(...corners.map((corner) => corner.x)),
+    top: Math.min(...corners.map((corner) => corner.y)),
+    right: Math.max(...corners.map((corner) => corner.x)),
+    bottom: Math.max(...corners.map((corner) => corner.y)),
+  };
+}
+
+function elementOverlapsFrame(
+  element: SlideSceneElement,
+  frame: SlideSceneElement | SlideDescriptor,
+): boolean {
+  const bounds = rotatedBounds(element);
+  return (
+    bounds.right > frame.x &&
+    bounds.left < frame.x + frame.width &&
+    bounds.bottom > frame.y &&
+    bounds.top < frame.y + frame.height
+  );
+}
+
+export function repairInvalidSlideChildren(
+  elements: readonly SlideSceneElement[],
+): readonly SlideSceneElement[] {
+  const frames = frameElements(elements);
+  const framesById = new Map(frames.map((frame) => [frame.id, frame]));
+  let changed = false;
+  const restored = elements.map((element) => {
+    if (element.type === "frame" || element.isDeleted || !element.frameId) {
+      return element;
+    }
+    const frame = framesById.get(element.frameId);
+    if (!frame || elementOverlapsFrame(element, frame)) {
+      return element;
+    }
+    const bounds = rotatedBounds(element);
+    const visibleWidth = Math.min(64, frame.width, Math.max(1, element.width));
+    const visibleHeight = Math.min(
+      64,
+      frame.height,
+      Math.max(1, element.height),
+    );
+    let deltaX = 0;
+    let deltaY = 0;
+    if (bounds.right <= frame.x) {
+      deltaX = frame.x + visibleWidth - bounds.right;
+    } else if (bounds.left >= frame.x + frame.width) {
+      deltaX = frame.x + frame.width - visibleWidth - bounds.left;
+    }
+    if (bounds.bottom <= frame.y) {
+      deltaY = frame.y + visibleHeight - bounds.bottom;
+    } else if (bounds.top >= frame.y + frame.height) {
+      deltaY = frame.y + frame.height - visibleHeight - bounds.top;
+    }
+    changed = true;
+    return {
+      ...element,
+      x: element.x + deltaX,
+      y: element.y + deltaY,
+    };
+  });
+  return changed ? restored : elements;
+}
+
+function owningFrameId(
+  element: SlideSceneElement,
+  frames: readonly SlideSceneElement[],
+): string | null {
+  if (element.type === "frame") {
+    return element.id;
+  }
+  if (element.frameId) {
+    const explicitFrame = frames.find((frame) => frame.id === element.frameId);
+    if (explicitFrame) {
+      return elementOverlapsFrame(element, explicitFrame)
+        ? explicitFrame.id
+        : null;
+    }
+  }
+  const overlappingFrames = frames.filter(
+    (frame) => elementOverlapsFrame(element, frame),
+  );
+  return overlappingFrames.length === 1 ? overlappingFrames[0].id : null;
+}
+
+function bindElementsToSlideFrames(
+  elements: readonly SlideSceneElement[],
+  frames: readonly SlideSceneElement[],
+): readonly SlideSceneElement[] {
+  let changed = false;
+  const boundElements = elements.map((element) => {
+    if (element.type === "frame" || element.isDeleted) {
+      return element;
+    }
+    const frameId = owningFrameId(element, frames);
+    if (!frameId || element.frameId === frameId) {
+      return element;
+    }
+    changed = true;
+    return { ...element, frameId };
+  });
+  return changed ? boundElements : elements;
+}
+
 export function lockSlideFrames(
   elements: readonly SlideSceneElement[],
 ): readonly SlideSceneElement[] {
@@ -66,6 +185,7 @@ export function alignSlidesVertically(
   elements: readonly SlideSceneElement[],
 ): readonly SlideSceneElement[] {
   const slides = frameElements(elements);
+  const boundElements = bindElementsToSlideFrames(elements, slides);
   const anchorY = slides[0]?.y;
   if (anchorY === undefined) {
     return elements;
@@ -77,12 +197,11 @@ export function alignSlidesVertically(
       .filter(([, deltaY]) => deltaY !== 0),
   );
   if (deltas.size === 0) {
-    return elements;
+    return boundElements;
   }
 
-  return elements.map((element) => {
-    const ownerFrameId =
-      element.type === "frame" ? element.id : (element.frameId ?? null);
+  return boundElements.map((element) => {
+    const ownerFrameId = owningFrameId(element, slides);
     const deltaY = ownerFrameId ? deltas.get(ownerFrameId) : undefined;
     return deltaY === undefined
       ? element
@@ -92,30 +211,34 @@ export function alignSlidesVertically(
 
 export function normalizeSlideFrames(
   elements: readonly SlideSceneElement[],
-  frameSize: { readonly width: number; readonly height: number },
+  frameSize?: { readonly width: number; readonly height: number },
 ): readonly SlideSceneElement[] {
   const frames = frameElements(elements);
   const firstFrame = frames[0];
   if (!firstFrame) {
     return lockSlideFrames(elements);
   }
+  const boundElements = bindElementsToSlideFrames(elements, frames);
 
   let nextX = firstFrame.x;
   const targets = new Map(
     frames.map((frame) => {
+      const width = frameSize?.width ?? frame.width;
+      const height = frameSize?.height ?? frame.height;
       const target = {
         source: frame,
         x: nextX,
         y: firstFrame.y,
+        width,
+        height,
       };
-      nextX += frameSize.width + SLIDE_GAP;
+      nextX += width + SLIDE_GAP;
       return [frame.id, target] as const;
     }),
   );
 
-  const normalized = elements.map((element) => {
-    const ownerFrameId =
-      element.type === "frame" ? element.id : (element.frameId ?? null);
+  const normalized = boundElements.map((element) => {
+    const ownerFrameId = owningFrameId(element, frames);
     const target = ownerFrameId ? targets.get(ownerFrameId) : undefined;
     if (!target) {
       return element;
@@ -127,8 +250,8 @@ export function normalizeSlideFrames(
       if (
         deltaX === 0 &&
         deltaY === 0 &&
-        element.width === frameSize.width &&
-        element.height === frameSize.height
+        element.width === target.width &&
+        element.height === target.height
       ) {
         return element;
       }
@@ -136,8 +259,8 @@ export function normalizeSlideFrames(
         ...element,
         x: target.x,
         y: target.y,
-        width: frameSize.width,
-        height: frameSize.height,
+        width: target.width,
+        height: target.height,
       };
     }
 
@@ -152,8 +275,8 @@ export function normalizeSlideFrames(
       if (
         deltaX === 0 &&
         deltaY === 0 &&
-        element.width === frameSize.width &&
-        element.height === frameSize.height
+        element.width === target.width &&
+        element.height === target.height
       ) {
         return element;
       }
@@ -161,8 +284,8 @@ export function normalizeSlideFrames(
         ...element,
         x: target.x,
         y: target.y,
-        width: frameSize.width,
-        height: frameSize.height,
+        width: target.width,
+        height: target.height,
       };
     }
     if (deltaX === 0 && deltaY === 0) {
@@ -183,6 +306,133 @@ export function normalizeSlideFrames(
   return lockSlideFrames(normalizedElements);
 }
 
+function scalePoint(
+  point: unknown,
+  scaleX: number,
+  scaleY: number,
+): unknown {
+  if (
+    !Array.isArray(point) ||
+    typeof point[0] !== "number" ||
+    typeof point[1] !== "number"
+  ) {
+    return point;
+  }
+  return [point[0] * scaleX, point[1] * scaleY];
+}
+
+function scaleBinding(binding: unknown, scale: number): unknown {
+  if (!binding || typeof binding !== "object") {
+    return binding;
+  }
+  const gap = (binding as Record<string, unknown>).gap;
+  return typeof gap === "number"
+    ? { ...binding, gap: gap * scale }
+    : binding;
+}
+
+function scaleSlideChild(
+  element: SlideSceneElement,
+  source: SlideSceneElement,
+  target: { readonly x: number; readonly y: number },
+  scaleX: number,
+  scaleY: number,
+): SlideSceneElement {
+  const uniformScale = Math.min(scaleX, scaleY);
+  const next: Record<string, unknown> = {
+    ...element,
+    x: target.x + (element.x - source.x) * scaleX,
+    y: target.y + (element.y - source.y) * scaleY,
+    width: element.width * scaleX,
+    height: element.height * scaleY,
+  };
+  if (Array.isArray(element.points)) {
+    next.points = element.points.map((point) =>
+      scalePoint(point, scaleX, scaleY),
+    );
+  }
+  if (element.lastCommittedPoint) {
+    next.lastCommittedPoint = scalePoint(
+      element.lastCommittedPoint,
+      scaleX,
+      scaleY,
+    );
+  }
+  for (const key of ["fontSize", "baseline", "strokeWidth"] as const) {
+    if (typeof element[key] === "number") {
+      next[key] = element[key] * uniformScale;
+    }
+  }
+  if (element.startBinding) {
+    next.startBinding = scaleBinding(element.startBinding, uniformScale);
+  }
+  if (element.endBinding) {
+    next.endBinding = scaleBinding(element.endBinding, uniformScale);
+  }
+  return next as unknown as SlideSceneElement;
+}
+
+/**
+ * Explicitly migrates a Slide scene to a different output size. Unlike routine
+ * normalization, this scales every bound child with its owning frame so a
+ * preset change cannot leave content at coordinates from the old canvas.
+ */
+export function resizeSlideFrames(
+  elements: readonly SlideSceneElement[],
+  frameSize: { readonly width: number; readonly height: number },
+): readonly SlideSceneElement[] {
+  const frames = frameElements(elements);
+  const firstFrame = frames[0];
+  if (!firstFrame) {
+    return lockSlideFrames(elements);
+  }
+  const boundElements = bindElementsToSlideFrames(elements, frames);
+  let nextX = firstFrame.x;
+  const targets = new Map(
+    frames.map((frame) => {
+      const target = {
+        source: frame,
+        x: nextX,
+        y: firstFrame.y,
+      };
+      nextX += frameSize.width + SLIDE_GAP;
+      return [frame.id, target] as const;
+    }),
+  );
+
+  const resized = boundElements.map((element) => {
+    const explicitFrameId =
+      typeof element.frameId === "string" && targets.has(element.frameId)
+        ? element.frameId
+        : null;
+    const ownerFrameId =
+      element.type === "frame"
+        ? element.id
+        : (explicitFrameId ?? owningFrameId(element, frames));
+    const target = ownerFrameId ? targets.get(ownerFrameId) : undefined;
+    if (!target) {
+      return element;
+    }
+    if (element.type === "frame") {
+      return {
+        ...element,
+        x: target.x,
+        y: target.y,
+        width: frameSize.width,
+        height: frameSize.height,
+      };
+    }
+    return scaleSlideChild(
+      element,
+      target.source,
+      target,
+      frameSize.width / target.source.width,
+      frameSize.height / target.source.height,
+    );
+  });
+  return lockSlideFrames(resized);
+}
+
 export function getSlides(
   elements: readonly SlideSceneElement[],
 ): SlideDescriptor[] {
@@ -196,11 +446,73 @@ export function getSlides(
   }));
 }
 
+export function isPointOnSlide(
+  elements: readonly SlideSceneElement[],
+  point: { readonly x: number; readonly y: number },
+): boolean {
+  return getSlides(elements).some(
+    (slide) =>
+      point.x >= slide.x &&
+      point.x <= slide.x + slide.width &&
+      point.y >= slide.y &&
+      point.y <= slide.y + slide.height,
+  );
+}
+
+export function getSlideAtPoint(
+  elements: readonly SlideSceneElement[],
+  point: { readonly x: number; readonly y: number },
+): SlideDescriptor | null {
+  return (
+    getSlides(elements).find(
+      (slide) =>
+        point.x >= slide.x &&
+        point.x <= slide.x + slide.width &&
+        point.y >= slide.y &&
+        point.y <= slide.y + slide.height,
+    ) ?? null
+  );
+}
+
+export function wouldNudgeElementsOutsideOwningSlides(
+  elements: readonly SlideSceneElement[],
+  selectedElementIds: Readonly<Record<string, boolean>>,
+  offset: { readonly x: number; readonly y: number },
+): boolean {
+  const framesById = new Map(
+    frameElements(elements).map((frame) => [frame.id, frame]),
+  );
+  return elements.some((element) => {
+    if (
+      element.type === "frame" ||
+      element.isDeleted ||
+      !selectedElementIds[element.id] ||
+      !element.frameId
+    ) {
+      return false;
+    }
+    const frame = framesById.get(element.frameId);
+    if (!frame) {
+      return false;
+    }
+    return !elementOverlapsFrame(
+      {
+        ...element,
+        x: element.x + offset.x,
+        y: element.y + offset.y,
+      },
+      frame,
+    );
+  });
+}
+
 function arrangeSlides(
   elements: readonly SlideSceneElement[],
   orderedFrameIds: readonly string[],
 ) {
-  const byFrame = new Map(frameElements(elements).map((frame) => [frame.id, frame]));
+  const frames = frameElements(elements);
+  const boundElements = bindElementsToSlideFrames(elements, frames);
+  const byFrame = new Map(frames.map((frame) => [frame.id, frame]));
   const deltas = new Map<string, number>();
   let nextX = 0;
 
@@ -211,24 +523,31 @@ function arrangeSlides(
     }
     deltas.set(frameId, nextX - frame.x);
     nextX += frame.width + SLIDE_GAP;
-    byFrame.set(frameId, { ...frame, name: `Slide ${index + 1}` });
+    const name = `Slide ${index + 1}`;
+    byFrame.set(frameId, frame.name === name ? frame : { ...frame, name });
   });
 
   return lockSlideFrames(
-    elements.map((element) => {
-      const ownerFrameId =
-        element.type === "frame" ? element.id : (element.frameId ?? null);
+    boundElements.map((element) => {
+      const ownerFrameId = owningFrameId(element, frames);
       if (!ownerFrameId || !deltas.has(ownerFrameId)) {
-        return { ...element };
+        return element;
       }
       const deltaX = deltas.get(ownerFrameId) ?? 0;
       const arranged =
         element.type === "frame"
           ? byFrame.get(ownerFrameId) ?? element
           : element;
+      const x = element.x + deltaX;
+      if (arranged === element && x === element.x) {
+        return element;
+      }
+      if (arranged !== element && x === arranged.x) {
+        return arranged;
+      }
       return {
         ...arranged,
-        x: element.x + deltaX,
+        x,
       };
     }),
   );
@@ -286,8 +605,9 @@ export function deleteSlide(
   if (!slides.some((slide) => slide.id === frameId)) {
     throw new Error(`找不到幻灯片 ${frameId}`);
   }
+  const frames = frameElements(elements);
   const nextElements = elements.filter(
-    (element) => element.id !== frameId && element.frameId !== frameId,
+    (element) => owningFrameId(element, frames) !== frameId,
   );
   const remainingIds = slides
     .filter((slide) => slide.id !== frameId)
@@ -345,6 +665,46 @@ export function duplicateSlide(
   orderedIds.splice(sourceIndex + 1, 0, copiedFrameId);
   const arranged = arrangeSlides([...elements, ...copies], orderedIds);
   return mutation(arranged, copiedFrameId);
+}
+
+export function pasteSlides(
+  elements: readonly SlideSceneElement[],
+  clipboardElements: readonly SlideSceneElement[],
+  afterId: string | null,
+  createId: () => string,
+): SlideMutation {
+  const sourceElements = clipboardElements.filter(
+    (element) => !element.isDeleted,
+  );
+  const sourceFrames = frameElements(sourceElements);
+  if (sourceFrames.length === 0) {
+    throw new Error("剪贴板中没有 Slide");
+  }
+  const slides = getSlides(elements);
+  const afterIndex = afterId
+    ? slides.findIndex((slide) => slide.id === afterId)
+    : slides.length - 1;
+  if (afterId && afterIndex < 0) {
+    throw new Error(`找不到幻灯片 ${afterId}`);
+  }
+  const idMap = new Map(
+    sourceElements.map((element) => [element.id, createId()]),
+  );
+  const copies = sourceElements.map(
+    (element) => rewriteReferences(element, idMap) as SlideSceneElement,
+  );
+  const copiedFrameIds = sourceFrames.map((frame) => idMap.get(frame.id));
+  if (copiedFrameIds.some((frameId) => !frameId)) {
+    throw new Error("粘贴 Slide 失败");
+  }
+  const orderedIds = slides.map((slide) => slide.id);
+  orderedIds.splice(
+    afterIndex + 1,
+    0,
+    ...(copiedFrameIds as string[]),
+  );
+  const arranged = arrangeSlides([...elements, ...copies], orderedIds);
+  return mutation(arranged, copiedFrameIds[0] as string);
 }
 
 export function reorderSlides(

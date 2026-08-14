@@ -38,6 +38,9 @@ describe("ProductTopbar", () => {
 
     expect(screen.getByRole("button", { name: "设置" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "提词器" })).toBeEnabled();
+    expect(
+      screen.queryByRole("button", { name: "保存当前画布" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "录制" })).toBeEnabled();
     expect(
       screen.queryByRole("button", { name: "素材库" }),
@@ -65,7 +68,9 @@ describe("ProductTopbar", () => {
       />,
     );
 
-    expect(screen.getByRole("alert")).toHaveTextContent("保存失败");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "自动保存失败，请检查文件状态",
+    );
   });
 
   it("replaces the record action with timer and transport controls", () => {
@@ -300,6 +305,33 @@ describe("SlideRail", () => {
     expect(
       screen.queryByRole("menu", { name: "Slide 2 操作" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("limits the navigation menu to copy, export, and delete", () => {
+    render(
+      <SlideRail
+        currentSlideId="slide-2"
+        slides={[
+          { id: "slide-1", name: "Slide 1" },
+          { id: "slide-2", name: "Slide 2" },
+          { id: "slide-3", name: "Slide 3" },
+        ]}
+        onAdd={() => undefined}
+        onDelete={() => undefined}
+        onDuplicate={() => undefined}
+        onExport={() => undefined}
+        onNavigate={() => undefined}
+        onReorder={() => undefined}
+      />,
+    );
+
+    fireEvent.contextMenu(
+      document.querySelector<HTMLElement>('[data-slide-id="slide-2"]')!,
+    );
+
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["复制 Slide", "导出为 PNG", "删除 Slide"]);
   });
 
   it("opens the Slide menu to the left of the navigation rail", () => {
@@ -761,7 +793,11 @@ describe("SettingsDialog", () => {
       />,
     );
 
-    const scrollingSettings = screen.getByLabelText("可滚动设置项");
+    const scrollingSettings = document.querySelector<HTMLElement>(
+      ".settings-form-scroll",
+    );
+
+    expect(scrollingSettings).not.toHaveAttribute("aria-label");
 
     expect(scrollingSettings).not.toContainElement(
       screen.getByRole("button", { name: "取消" }),

@@ -15,12 +15,13 @@ export interface SlideRailProps {
   readonly onNavigate: (id: string) => void;
   readonly onAdd: () => void;
   readonly onDelete?: (id: string) => void;
+  readonly onDuplicate?: (id: string) => void;
   readonly onExport?: (id: string) => void;
   readonly onReorder: (ids: string[]) => void;
 }
 
 interface SlideMenuState {
-  readonly returnFocus: HTMLButtonElement;
+  readonly returnFocus: HTMLElement;
   readonly slide: SlideRailItem;
   readonly x: number;
   readonly y: number;
@@ -28,6 +29,7 @@ interface SlideMenuState {
 
 const SLIDE_MENU_WIDTH = 180;
 const SLIDE_MENU_GAP = 8;
+const SLIDE_MENU_HEIGHT = 152;
 
 export function SlideRail(props: SlideRailProps) {
   const draggedId = useRef<string | null>(null);
@@ -237,7 +239,7 @@ export function SlideRail(props: SlideRailProps) {
                   ),
                   y: Math.min(
                     Math.max(8, event.clientY || bounds.bottom),
-                    Math.max(8, window.innerHeight - 104),
+                    Math.max(8, window.innerHeight - SLIDE_MENU_HEIGHT),
                   ),
                 });
               }}
@@ -344,6 +346,19 @@ export function SlideRail(props: SlideRailProps) {
           role="menu"
           style={{ left: menu.x, top: menu.y }}
         >
+          <button
+            disabled={!props.onDuplicate}
+            onClick={() => {
+              props.onDuplicate?.(menu.slide.id);
+              setMenu(null);
+              menu.returnFocus.focus();
+            }}
+            role="menuitem"
+            type="button"
+          >
+            <Icon name="copy" />
+            <span>复制 Slide</span>
+          </button>
           <button
             onClick={() => {
               props.onExport?.(menu.slide.id);

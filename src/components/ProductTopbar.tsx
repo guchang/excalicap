@@ -62,7 +62,7 @@ export function ProductTopbar(props: ProductTopbarProps) {
     <>
       {props.saveStatus === "failed" ? (
         <div className="product-save-state" role="alert">
-          保存失败
+          自动保存失败，请检查文件状态
         </div>
       ) : null}
       <div className="product-control-rail" aria-label="创作控制">

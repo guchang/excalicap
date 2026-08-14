@@ -3,6 +3,7 @@ export interface ProjectSnapshot {
   readonly updatedAt: number;
   readonly projectTitle: string;
   readonly currentSlideId: string | null;
+  readonly teleprompterText?: string;
   readonly elements: readonly unknown[];
   readonly appState: Readonly<Record<string, unknown>>;
   readonly files: Readonly<Record<string, unknown>>;
@@ -104,12 +105,14 @@ export type AutosaveStatus =
 export interface AutosaveController {
   queue(snapshot: ProjectSnapshot): void;
   flush(snapshot?: ProjectSnapshot): Promise<void>;
+  discardPending(): void;
   dispose(): void;
 }
 
 export function createAutosaveController(options: {
   readonly delayMs: number;
   readonly save: (snapshot: ProjectSnapshot) => Promise<void>;
+  readonly onError?: (error: unknown) => void;
   readonly onStatusChange: (status: AutosaveStatus) => void;
 }): AutosaveController {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -131,6 +134,7 @@ export function createAutosaveController(options: {
       options.onStatusChange("saved");
     } catch (error) {
       options.onStatusChange("failed");
+      options.onError?.(error);
       throw error;
     }
   };
@@ -147,6 +151,13 @@ export function createAutosaveController(options: {
       }, options.delayMs);
     },
     flush,
+    discardPending() {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      timer = null;
+      latest = null;
+    },
     dispose() {
       if (timer) {
         clearTimeout(timer);

@@ -29,6 +29,7 @@ describe("teleprompter styles", () => {
     expect(webkitTrackRule?.[1]).toContain("height: 14px");
     expect(webkitTrackRule?.[1]).toContain("background: transparent");
     expect(webkitThumbRule?.[1]).toContain("margin-top: 0");
+    expect(webkitThumbRule?.[1]).toContain("transform: translateY(6px)");
     expect(webkitThumbRule?.[1]).not.toMatch(/margin-top:\s*-\d/);
   });
 });

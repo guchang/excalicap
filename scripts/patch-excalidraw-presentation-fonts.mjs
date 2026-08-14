@@ -3,6 +3,53 @@ import { fileURLToPath } from "node:url";
 
 const EXPECTED_VERSION = "0.18.1";
 const baseUrl = new URL("../node_modules/@excalidraw/excalidraw/", import.meta.url);
+const CASCADE_FRAME_DELETE_MARKER = "excalicap-cascade-frame-delete";
+
+function patchFrameDeletion(source) {
+  if (source.includes(CASCADE_FRAME_DELETE_MARKER)) {
+    return source;
+  }
+
+  const developmentSelectedChild =
+    /(if \(el\.frameId && framesToBeDeleted\.has\(el\.frameId\)\) \{\s*shouldSelectEditingGroup = false;\s*selectedElementIds\[el\.id\] = true;)\s*return el;/;
+  const developmentDetachedChild =
+    "return newElementWith(el, { frameId: null });";
+  if (
+    developmentSelectedChild.test(source) &&
+    source.includes(developmentDetachedChild)
+  ) {
+    return source
+      .replace(
+        developmentSelectedChild,
+        `$1\n        /* ${CASCADE_FRAME_DELETE_MARKER} */\n        return newElementWith(el, { isDeleted: true });`,
+      )
+      .replace(
+        developmentDetachedChild,
+        "return newElementWith(el, { isDeleted: true });",
+      );
+  }
+
+  const productionSelectedChild =
+    "return m.frameId&&r.has(m.frameId)?(l=!1,n[m.id]=!0,m):";
+  const productionDetachedChild =
+    "return m.frameId&&r.has(m.frameId)?(l=!1,qe(m)||(n[m.id]=!0),q(m,{frameId:null})):";
+  if (
+    source.includes(productionSelectedChild) &&
+    source.includes(productionDetachedChild)
+  ) {
+    return source
+      .replace(
+        productionSelectedChild,
+        `return/*${CASCADE_FRAME_DELETE_MARKER}*/m.frameId&&r.has(m.frameId)?(l=!1,n[m.id]=!0,q(m,{isDeleted:!0})):`,
+      )
+      .replace(
+        productionDetachedChild,
+        "return m.frameId&&r.has(m.frameId)?(l=!1,qe(m)||(n[m.id]=!0),q(m,{isDeleted:!0})):",
+      );
+  }
+
+  throw new Error("找不到 Excalidraw Frame 删除逻辑");
+}
 
 function replacePreset(source, testId, from, to) {
   const pattern = new RegExp(
@@ -28,7 +75,7 @@ function findFontSizeAction(source) {
 }
 
 export function patchExcalidrawJavaScript(source) {
-  let patched = source;
+  let patched = patchFrameDeletion(source);
   for (const [testId, from, to] of [
     ["fontSize-small", 16, 36],
     ["fontSize-medium", 20, 48],

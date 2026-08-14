@@ -16,6 +16,7 @@ import { moveSlideToSlot } from "../slides/slide-reorder";
 import type { SlideDescriptor } from "../slides/slide-service";
 
 interface CanvasSlideSorterProps {
+  readonly currentSlideId: string | null;
   readonly disabled: boolean;
   readonly hostOrigin?: ViewportOrigin | null;
   readonly slides: readonly SlideDescriptor[];
@@ -23,11 +24,17 @@ interface CanvasSlideSorterProps {
   readonly onAutoPan: (direction: -1 | 1) => void;
   readonly onPreview: (slideId: string) => Promise<string | null>;
   readonly onReorder: (ids: string[]) => void;
+  readonly onSelect: (slideId: string) => void;
 }
 
 interface PositionedSlide {
   readonly slide: SlideDescriptor;
   readonly rect: ViewportRect;
+}
+
+interface InsertionEdgeOffsets {
+  readonly leading: number;
+  readonly trailing: number;
 }
 
 interface SlideDrag {
@@ -44,8 +51,24 @@ interface SlideDrag {
   readonly previewUrl: string | null;
 }
 
+interface SlidePress {
+  readonly positioned: PositionedSlide;
+  readonly pointerId: number;
+  readonly clientX: number;
+  readonly clientY: number;
+}
+
+interface GesturePointerEvent {
+  readonly pointerId: number;
+  readonly clientX: number;
+  readonly clientY: number;
+  preventDefault(): void;
+  stopPropagation(): void;
+}
+
 const EDGE_PAN_ZONE = 76;
 const CANVAS_SLIDE_HANDLE_OFFSET = 24;
+const DRAG_START_DISTANCE = 5;
 
 function insertionSlot(
   slides: readonly PositionedSlide[],
@@ -60,18 +83,18 @@ function insertionSlot(
 function insertionLine(
   slides: readonly PositionedSlide[],
   slot: number,
+  edgeOffsets: InsertionEdgeOffsets,
 ) {
   if (slides.length === 0) {
     return null;
   }
   const first = slides[0].rect;
   const last = slides[slides.length - 1].rect;
-  const gap = Math.max(22, Math.min(64, (last.left - first.left) / 8));
   let left: number;
   if (slot === 0) {
-    left = first.left - gap;
+    left = first.left - edgeOffsets.leading;
   } else if (slot === slides.length) {
-    left = last.left + last.width + gap;
+    left = last.left + last.width + edgeOffsets.trailing;
   } else {
     const previous = slides[slot - 1].rect;
     const next = slides[slot].rect;
@@ -87,6 +110,7 @@ function insertionLine(
 export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
   const [drag, setDrag] = useState<SlideDrag | null>(null);
   const dragRef = useRef<SlideDrag | null>(null);
+  const pressRef = useRef<SlidePress | null>(null);
   const [settledId, setSettledId] = useState<string | null>(null);
   const positionedSlides = useMemo(
     () =>
@@ -103,6 +127,24 @@ export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
         : [],
     [props.hostOrigin, props.slides, props.viewport],
   );
+  const edgeOffsets = positionedSlides.length > 1
+    ? {
+        leading:
+          Math.max(
+            0,
+            positionedSlides[1].rect.left -
+              positionedSlides[0].rect.left -
+              positionedSlides[0].rect.width,
+          ) / 2,
+        trailing:
+          Math.max(
+            0,
+            positionedSlides[positionedSlides.length - 1].rect.left -
+              positionedSlides[positionedSlides.length - 2].rect.left -
+              positionedSlides[positionedSlides.length - 2].rect.width,
+          ) / 2,
+      }
+    : { leading: 0, trailing: 0 };
   const remainingSlides = drag
     ? positionedSlides.filter(({ slide }) => slide.id !== drag.slideId)
     : [];
@@ -112,18 +154,18 @@ export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
     : slideIds;
   const line =
     drag && previewOrder !== slideIds
-      ? insertionLine(remainingSlides, drag.slot)
+      ? insertionLine(remainingSlides, drag.slot, edgeOffsets)
       : null;
 
-  const cancelDrag = () => {
+  const cancelGesture = () => {
+    pressRef.current = null;
     dragRef.current = null;
     setDrag(null);
   };
 
   useEffect(() => {
-    if (props.disabled && dragRef.current) {
-      dragRef.current = null;
-      setDrag(null);
+    if (props.disabled && (pressRef.current || dragRef.current)) {
+      cancelGesture();
     }
   }, [props.disabled]);
 
@@ -133,7 +175,7 @@ export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
     }
     const cancel = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        cancelDrag();
+        cancelGesture();
       }
     };
     window.addEventListener("keydown", cancel);
@@ -153,7 +195,7 @@ export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
     return () => cancelAnimationFrame(animationFrame);
   }, [drag?.autoPan, props.onAutoPan]);
 
-  const beginDrag = (
+  const beginGesture = (
     event: PointerEvent<HTMLButtonElement>,
     positioned: PositionedSlide,
   ) => {
@@ -163,8 +205,25 @@ export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const clientX = event.clientX - (props.hostOrigin?.left ?? 0);
-    const clientY = event.clientY - (props.hostOrigin?.top ?? 0);
+    pressRef.current = {
+      positioned,
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+  };
+
+  const startDrag = (
+    press: SlidePress,
+    event: GesturePointerEvent,
+  ) => {
+    const { positioned } = press;
+    const hostLeft = props.hostOrigin?.left ?? 0;
+    const hostTop = props.hostOrigin?.top ?? 0;
+    const clientX = event.clientX - hostLeft;
+    const clientY = event.clientY - hostTop;
+    const startX = press.clientX - hostLeft;
+    const startY = press.clientY - hostTop;
     const remaining = positionedSlides.filter(
       ({ slide }) => slide.id !== positioned.slide.id,
     );
@@ -174,14 +233,15 @@ export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
       pointerId: event.pointerId,
       clientX,
       clientY,
-      grabOffsetX: clientX - positioned.rect.left,
-      grabOffsetY: clientY - positioned.rect.top,
+      grabOffsetX: startX - positioned.rect.left,
+      grabOffsetY: startY - positioned.rect.top,
       width: positioned.rect.width,
       height: positioned.rect.height,
       slot,
       autoPan: 0,
       previewUrl: null,
     };
+    pressRef.current = null;
     dragRef.current = nextDrag;
     setDrag(nextDrag);
     void props.onPreview(positioned.slide.id).then((previewUrl) => {
@@ -195,8 +255,20 @@ export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
     });
   };
 
-  const updateDrag = (event: PointerEvent<HTMLButtonElement>) => {
-    const current = dragRef.current;
+  const updateGesture = (event: GesturePointerEvent) => {
+    let current = dragRef.current;
+    const press = pressRef.current;
+    if (!current && press && event.pointerId === press.pointerId) {
+      const distance = Math.hypot(
+        event.clientX - press.clientX,
+        event.clientY - press.clientY,
+      );
+      if (distance < DRAG_START_DISTANCE) {
+        return;
+      }
+      startDrag(press, event);
+      current = dragRef.current;
+    }
     if (!current || event.pointerId !== current.pointerId) {
       return;
     }
@@ -224,19 +296,26 @@ export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
     setDrag(nextDrag);
   };
 
-  const finishDrag = (event: PointerEvent<HTMLButtonElement>) => {
+  const finishGesture = (event: GesturePointerEvent) => {
     const current = dragRef.current;
-    if (!current || event.pointerId !== current.pointerId) {
+    if (!current) {
+      const press = pressRef.current;
+      if (!press || event.pointerId !== press.pointerId) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      pressRef.current = null;
+      props.onSelect(press.positioned.slide.id);
+      return;
+    }
+    if (event.pointerId !== current.pointerId) {
       return;
     }
     event.preventDefault();
-    const remaining = positionedSlides.filter(
-      ({ slide }) => slide.id !== current.slideId,
-    );
+    event.stopPropagation();
     const ids = props.slides.map((slide) => slide.id);
-    const clientX = event.clientX - (props.hostOrigin?.left ?? 0);
-    const slot = insertionSlot(remaining, clientX);
-    const reordered = moveSlideToSlot(ids, current.slideId, slot);
+    const reordered = moveSlideToSlot(ids, current.slideId, current.slot);
     if (reordered !== ids) {
       props.onReorder([...reordered]);
       setSettledId(current.slideId);
@@ -245,6 +324,27 @@ export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
     dragRef.current = null;
     setDrag(null);
   };
+
+  useEffect(() => {
+    const cancelPointerGesture = (event: globalThis.PointerEvent) => {
+      if (
+        dragRef.current?.pointerId === event.pointerId ||
+        pressRef.current?.pointerId === event.pointerId
+      ) {
+        cancelGesture();
+      }
+    };
+    window.addEventListener("pointermove", updateGesture);
+    window.addEventListener("pointerup", finishGesture);
+    window.addEventListener("pointercancel", cancelPointerGesture);
+    window.addEventListener("blur", cancelGesture);
+    return () => {
+      window.removeEventListener("pointermove", updateGesture);
+      window.removeEventListener("pointerup", finishGesture);
+      window.removeEventListener("pointercancel", cancelPointerGesture);
+      window.removeEventListener("blur", cancelGesture);
+    };
+  });
 
   return (
     <div
@@ -268,28 +368,30 @@ export function CanvasSlideSorter(props: CanvasSlideSorterProps) {
           }
           return (
             <button
-              aria-label={`拖动 ${slide.name} 排序`}
+              aria-label={`选择或拖动 ${slide.name}`}
               className="canvas-slide-drag-handle"
+              data-active={props.currentSlideId === slide.id}
               data-drag-source={drag?.slideId === slide.id}
               data-settled={settledId === slide.id}
               data-slide-id={slide.id}
               key={slide.id}
-              onLostPointerCapture={cancelDrag}
-              onPointerCancel={cancelDrag}
-              onPointerDown={(event) => beginDrag(event, positioned)}
-              onPointerMove={updateDrag}
-              onPointerUp={finishDrag}
+              onPointerDown={(event) => beginGesture(event, positioned)}
               style={{
                 left: rect.left - 1,
                 top: Math.max(0, rect.top - CANVAS_SLIDE_HANDLE_OFFSET),
               }}
-              title={`拖动 ${slide.name} 排序`}
+              title={`点击选中 ${slide.name}，按住拖动排序`}
               type="button"
             >
               <span aria-hidden="true" className="canvas-slide-title-grip">
                 ⠿
               </span>
-              <span className="canvas-slide-title-text">{slide.name}</span>
+              <span
+                className="canvas-slide-title-text"
+                data-slide-id={slide.id}
+              >
+                {slide.name}
+              </span>
             </button>
           );
         })}

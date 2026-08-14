@@ -3,6 +3,7 @@ import {
   SETTINGS_STORAGE_KEY,
   loadProductSettings,
   saveProductSettings,
+  takeLegacyTeleprompterText,
 } from "./settings-storage";
 
 function createStorage(initial: string | null = null) {
@@ -52,7 +53,7 @@ describe("product settings storage", () => {
     expect(settings.camera.enabled).toBe(false);
     expect(settings.camera.mirrored).toBe(false);
     expect(settings.camera.shape).toBe(DEFAULT_SETTINGS.camera.shape);
-    expect(settings.teleprompter.text).toBe("讲稿");
+    expect(settings.teleprompter.text).toBe("");
     expect(settings.teleprompter.speed).toBe(
       DEFAULT_SETTINGS.teleprompter.speed,
     );
@@ -123,6 +124,10 @@ describe("product settings storage", () => {
       loadProductSettings(createStorage(JSON.stringify(legacy))).teleprompter
         .fontSize,
     ).toBe(DEFAULT_SETTINGS.teleprompter.fontSize);
+    expect(
+      loadProductSettings(createStorage(JSON.stringify(legacy))).teleprompter
+        .text,
+    ).toBe("");
   });
 
   it("migrates legacy camera sizes and repairs invalid camera placement", () => {
@@ -158,5 +163,36 @@ describe("product settings storage", () => {
 
     expect(JSON.parse(storage.value() ?? "")).toEqual(settings);
     expect(loadProductSettings(storage)).toEqual(settings);
+  });
+
+  it("never persists document-specific teleprompter text globally", () => {
+    const storage = createStorage();
+
+    saveProductSettings(storage, {
+      ...DEFAULT_SETTINGS,
+      teleprompter: {
+        ...DEFAULT_SETTINGS.teleprompter,
+        text: "只属于当前文件的讲稿",
+      },
+    });
+
+    expect(
+      JSON.parse(storage.value() ?? "{}").teleprompter.text,
+    ).toBe("");
+  });
+
+  it("moves legacy shared text out of global settings exactly once", () => {
+    const storage = createStorage(
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        teleprompter: {
+          ...DEFAULT_SETTINGS.teleprompter,
+          text: "升级前的共享讲稿",
+        },
+      }),
+    );
+
+    expect(takeLegacyTeleprompterText(storage)).toBe("升级前的共享讲稿");
+    expect(takeLegacyTeleprompterText(storage)).toBe("");
   });
 });

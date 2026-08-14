@@ -327,7 +327,7 @@
 
 .canvas-slide-sorter {
   position: absolute;
-  z-index: 13;
+  z-index: 2;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
@@ -391,7 +391,13 @@
 }
 
 .canvas-slide-title-text {
+  pointer-events: none;
   white-space: nowrap;
+}
+
+.canvas-slide-drag-handle[data-active="true"] {
+  color: #6965db;
+  font-weight: 600;
 }
 
 .canvas-slide-drag-handle[data-drag-source="true"] {
@@ -669,6 +675,66 @@
   font-size: 12px !important;
   line-height: 1 !important;
 }
+
+.excalicap-obsidian-view
+  .excalidraw
+  .layer-ui__library
+  .library-menu-control-buttons {
+  flex-direction: row !important;
+}
+
+/* Keep Excalidraw's mobile toolbar inside this Obsidian leaf. The Obsidian
+   Excalidraw plugin also targets this global class and otherwise leaves a
+   centered 450px-wide overlay extending into adjacent panes. */
+.excalicap-obsidian-view
+  .excalidraw.excalidraw--mobile
+  .App-bottom-bar {
+  inset: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  transform: none !important;
+  flex-direction: row !important;
+  justify-content: flex-start !important;
+}
+
+.excalicap-obsidian-view
+  .excalidraw
+  .App-toolbar-container
+  .dropdown-menu-button.App-toolbar__extra-tools-trigger
+  svg,
+.excalicap-obsidian-view
+  .excalidraw
+  .layer-ui__library
+  .library-menu-dropdown-container
+  .dropdown-menu-button
+  svg {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.excalicap-obsidian-view
+  .excalidraw
+  .App-toolbar-container
+  .dropdown-menu-button.App-toolbar__extra-tools-trigger
+  svg
+  g {
+  stroke-width: 1.5 !important;
+}
+
+.excalicap-obsidian-view
+  .excalidraw
+  .layer-ui__library
+  .library-menu-dropdown-container
+  .dropdown-menu-button
+  svg
+  circle {
+  r: 1.5px !important;
+  fill: currentColor !important;
+  stroke: none !important;
+}
 /* Obsidian Excalidraw control sizing: end */
 
 /* Obsidian product button isolation: start */
@@ -903,6 +969,10 @@
 .excalicap-obsidian-view .canvas-slide-drag-handle:hover,
 .excalicap-obsidian-view .canvas-slide-drag-handle:focus-visible {
   color: #55536b !important;
+}
+
+.excalicap-obsidian-view .canvas-slide-drag-handle[data-active="true"] {
+  color: #6965db !important;
 }
 
 .slide-context-menu {
@@ -1257,7 +1327,7 @@
 .settings-form-scroll > label,
 .settings-form-scroll > fieldset,
 .settings-form-scroll > .settings-row {
-  margin-bottom: 18px;
+  margin-bottom: 22px;
 }
 
 .settings-row {
@@ -1267,13 +1337,15 @@
 }
 
 .settings-form fieldset {
-  padding: 14px;
-  border: 1px solid #e5e5e9;
-  border-radius: 12px;
+  min-width: 0;
+  margin-inline: 0;
+  padding: 0;
+  border: 0;
 }
 
 .settings-form legend {
-  padding: 0 5px;
+  margin-bottom: 12px;
+  padding: 0;
   color: #3f424c;
   font-size: 12px;
   font-weight: 800;
@@ -1300,15 +1372,147 @@
 }
 
 .toggle-row {
+  position: relative;
   display: flex !important;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.toggle-row + .toggle-row,
+.toggle-row + label,
+.settings-form fieldset > label + .toggle-row,
+.settings-form fieldset > .toggle-row + label {
+  margin-top: 10px;
+}
+
+.settings-switch {
+  position: absolute;
+  right: 0;
+  width: 42px;
+  height: 24px;
+  margin: 0;
+  opacity: 0;
+}
+
+.settings-switch-visual {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 24px;
+  flex: 0 0 42px;
+  border-radius: 999px;
+  background: #d8d9df;
+  box-shadow: inset 0 0 0 1px rgba(31, 35, 48, 0.06);
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.settings-switch-visual::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(20, 22, 30, 0.28);
+  content: "";
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.settings-switch:checked + .settings-switch-visual {
+  background: #6965db;
+  box-shadow: inset 0 0 0 1px rgba(65, 61, 164, 0.2);
+}
+
+.settings-switch:checked + .settings-switch-visual::after {
+  transform: translateX(18px);
+}
+
+.settings-switch:focus-visible + .settings-switch-visual {
+  outline: 3px solid rgba(105, 101, 219, 0.2);
+  outline-offset: 2px;
+}
+
+.settings-switch:disabled + .settings-switch-visual {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.range-setting {
+  gap: 12px !important;
+}
+
+.range-setting-header {
+  display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.toggle-row input {
-  width: 38px;
-  height: 21px;
-  accent-color: #6965db;
+.range-setting-header output {
+  min-width: 52px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #f0efff;
+  color: #514db7;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  text-align: center;
+}
+
+.range-setting input[type="range"] {
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  appearance: none;
+  outline: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.range-setting input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #e3e3e8;
+}
+
+.range-setting input[type="range"]::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  appearance: none;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #6965db;
+  box-shadow:
+    0 1px 3px rgba(20, 22, 30, 0.24),
+    0 0 0 1px rgba(70, 66, 170, 0.18);
+}
+
+.range-setting input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #e3e3e8;
+}
+
+.range-setting input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #6965db;
+  box-shadow:
+    0 1px 3px rgba(20, 22, 30, 0.24),
+    0 0 0 1px rgba(70, 66, 170, 0.18);
+}
+
+.range-setting input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 1px 3px rgba(20, 22, 30, 0.24),
+    0 0 0 4px rgba(105, 101, 219, 0.18);
 }
 
 .theme-segmented-control {
@@ -1720,6 +1924,7 @@
   box-shadow:
     0 1px 5px rgba(0, 0, 0, 0.4),
     0 0 0 1px rgba(255, 255, 255, 0.12);
+  transform: translateY(6px) !important;
 }
 
 .teleprompter-settings-panel input[type="range"]:focus-visible::-webkit-slider-thumb {
@@ -2230,6 +2435,11 @@
   color: #f0f0f4;
 }
 
+.product-shell[data-theme="dark"]
+  .canvas-slide-drag-handle[data-active="true"] {
+  color: #9f9bff;
+}
+
 .product-shell[data-theme="dark"] .settings-dialog {
   border-color: rgba(255, 255, 255, 0.1);
   background: #232329;
@@ -2269,6 +2479,48 @@
 
 .product-shell[data-theme="dark"] .settings-form fieldset {
   border-color: #414148;
+}
+
+.product-shell[data-theme="dark"] .settings-switch-visual {
+  background: #50515a;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.product-shell[data-theme="dark"]
+  .settings-switch:checked
+  + .settings-switch-visual {
+  background: #7772e8;
+}
+
+.product-shell[data-theme="dark"] .range-setting-header output {
+  background: #3b395c;
+  color: #d7d5ff;
+}
+
+.product-shell[data-theme="dark"]
+  .range-setting
+  input[type="range"]::-webkit-slider-runnable-track {
+  background: #484851;
+}
+
+.product-shell[data-theme="dark"]
+  .range-setting
+  input[type="range"]::-webkit-slider-thumb {
+  border-color: #232329;
+  background: #8a86f2;
+}
+
+.product-shell[data-theme="dark"]
+  .range-setting
+  input[type="range"]::-moz-range-track {
+  background: #484851;
+}
+
+.product-shell[data-theme="dark"]
+  .range-setting
+  input[type="range"]::-moz-range-thumb {
+  border-color: #232329;
+  background: #8a86f2;
 }
 
 .product-shell[data-theme="dark"] .theme-segmented-control {
@@ -2415,6 +2667,70 @@
   .slide-number {
   background-color: #6965db !important;
   color: #fff !important;
+}
+
+/* Keep Obsidian's global select rules out of the recording settings dialog. */
+.excalicap-obsidian-view .product-shell .settings-form select {
+  appearance: none !important;
+  width: 100% !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  padding: 0 36px 0 11px !important;
+  border: 1px solid #dddde3 !important;
+  border-radius: 9px !important;
+  background-color: #f9f9fa !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1.5 1.5 4.5 4 4.5-4' fill='none' stroke='%236b6e78' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5'/%3E%3C/svg%3E") !important;
+  background-position: right 12px center !important;
+  background-repeat: no-repeat !important;
+  background-size: 12px 8px !important;
+  box-shadow: none !important;
+  color: #252832 !important;
+}
+
+.excalicap-obsidian-view .product-shell .settings-form select:focus {
+  border-color: #6965db !important;
+  box-shadow: 0 0 0 3px rgba(105, 101, 219, 0.12) !important;
+}
+
+.excalicap-obsidian-view
+  .product-shell[data-theme="dark"]
+  .settings-form
+  select {
+  border-color: #4b4b53 !important;
+  background-color: #303036 !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1.5 1.5 4.5 4 4.5-4' fill='none' stroke='%23c2c3ca' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5'/%3E%3C/svg%3E") !important;
+  color: #eeeef2 !important;
+}
+
+.excalicap-obsidian-view
+  .product-shell
+  .settings-form
+  .settings-switch {
+  appearance: none !important;
+  width: 42px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.excalicap-obsidian-view
+  .product-shell
+  .settings-form
+  .range-setting
+  input[type="range"] {
+  appearance: none !important;
+  width: 100% !important;
+  height: 20px !important;
+  min-height: 20px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 /* Excalicap uses presentation-scale text sizes instead of Excalidraw's

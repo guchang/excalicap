@@ -67,15 +67,36 @@ describe("autosave controller", () => {
 
   it("flushes immediately and surfaces save failures", async () => {
     const statuses: string[] = [];
+    const errors: unknown[] = [];
     const controller = createAutosaveController({
       delayMs: 800,
       save: async () => {
         throw new Error("quota");
       },
+      onError: (error) => errors.push(error),
       onStatusChange: (status) => statuses.push(status),
     });
 
     await expect(controller.flush(snapshot(3))).rejects.toThrow("quota");
     expect(statuses).toEqual(["saving", "failed"]);
+    expect(errors).toEqual([expect.objectContaining({ message: "quota" })]);
+  });
+
+  it("discards an obsolete pending save when a newer external version loads", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async () => undefined);
+    const controller = createAutosaveController({
+      delayMs: 800,
+      save,
+      onStatusChange: vi.fn(),
+    });
+
+    controller.queue(snapshot(1));
+    controller.discardPending();
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(save).not.toHaveBeenCalled();
+    controller.dispose();
+    vi.useRealTimers();
   });
 });

@@ -120,7 +120,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
               <h2>画面与设备</h2>
             </div>
           </header>
-          <div aria-label="可滚动设置项" className="settings-form-scroll">
+          <div className="settings-form-scroll">
             <fieldset className="theme-settings">
               <legend>外观</legend>
               <div className="theme-segmented-control">
@@ -221,52 +221,61 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 ))}
               </div>
             </fieldset>
-            <div className="settings-row">
-              <label>
+            <label className="range-setting">
+              <span className="range-setting-header">
                 <span>画布留白</span>
-                <input
-                  aria-label="画布留白"
-                  max="96"
-                  min="0"
-                  type="range"
-                  value={draft.canvas.padding}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      canvas: {
-                        ...draft.canvas,
-                        padding: Number(event.target.value),
-                      },
-                    })
-                  }
-                />
-              </label>
-              <label>
+                <output aria-label="画布留白数值">
+                  {draft.canvas.padding} px
+                </output>
+              </span>
+              <input
+                aria-label="画布留白"
+                max="96"
+                min="0"
+                type="range"
+                value={draft.canvas.padding}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    canvas: {
+                      ...draft.canvas,
+                      padding: Number(event.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
+            <label className="range-setting">
+              <span className="range-setting-header">
                 <span>Slide 圆角</span>
-                <input
-                  aria-label="Slide 圆角"
-                  max="48"
-                  min="0"
-                  type="range"
-                  value={draft.canvas.slideRadius}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      canvas: {
-                        ...draft.canvas,
-                        slideRadius: Number(event.target.value),
-                      },
-                    })
-                  }
-                />
-              </label>
-            </div>
+                <output aria-label="Slide 圆角数值">
+                  {draft.canvas.slideRadius} px
+                </output>
+              </span>
+              <input
+                aria-label="Slide 圆角"
+                max="48"
+                min="0"
+                type="range"
+                value={draft.canvas.slideRadius}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    canvas: {
+                      ...draft.canvas,
+                      slideRadius: Number(event.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
             <fieldset>
               <legend>摄像头</legend>
               <label className="toggle-row">
                 <span>显示摄像头</span>
                 <input
                   aria-label="显示摄像头"
+                  className="settings-switch"
                   checked={draft.camera.enabled}
                   onChange={(event) =>
                     setDraft({
@@ -277,13 +286,16 @@ export function SettingsDialog(props: SettingsDialogProps) {
                       },
                     })
                   }
+                  role="switch"
                   type="checkbox"
                 />
+                <span aria-hidden="true" className="settings-switch-visual" />
               </label>
               <label className="toggle-row">
                 <span>镜像画面</span>
                 <input
                   aria-label="镜像画面"
+                  className="settings-switch"
                   checked={draft.camera.mirrored}
                   disabled={!draft.camera.enabled}
                   onChange={(event) =>
@@ -295,8 +307,10 @@ export function SettingsDialog(props: SettingsDialogProps) {
                       },
                     })
                   }
+                  role="switch"
                   type="checkbox"
                 />
+                <span aria-hidden="true" className="settings-switch-visual" />
               </label>
               <label>
                 <span>摄像头设备</span>
@@ -325,6 +339,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 <span>录制麦克风</span>
                 <input
                   aria-label="录制麦克风"
+                  className="settings-switch"
                   checked={draft.microphone.enabled}
                   onChange={(event) =>
                     setDraft({
@@ -335,8 +350,10 @@ export function SettingsDialog(props: SettingsDialogProps) {
                       },
                     })
                   }
+                  role="switch"
                   type="checkbox"
                 />
+                <span aria-hidden="true" className="settings-switch-visual" />
               </label>
               <label>
                 <span>麦克风设备</span>
@@ -366,6 +383,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
               <span>在成片中显示光标与激光笔</span>
               <input
                 aria-label="显示光标"
+                className="settings-switch"
                 checked={draft.cursor.enabled}
                 onChange={(event) =>
                   setDraft({
@@ -373,8 +391,10 @@ export function SettingsDialog(props: SettingsDialogProps) {
                     cursor: { ...draft.cursor, enabled: event.target.checked },
                   })
                 }
+                role="switch"
                 type="checkbox"
               />
+              <span aria-hidden="true" className="settings-switch-visual" />
             </label>
           </div>
           <footer>
